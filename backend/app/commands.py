@@ -1,31 +1,97 @@
 from __future__ import annotations
 
+import re
+
 import click
 from flask import Flask
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.core.security import hash_password
 from app.extensions import db
 from app.models import User
 
+_MIN_PASSWORD_LENGTH = 8
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
 
 def register_commands(app: Flask) -> None:
     @app.cli.command("create-admin")
-    @click.option("--name", prompt=True)
-    @click.option("--email", prompt=True)
-    @click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
+    @click.option("--name", prompt=True, help="Nome do administrador.")
+    @click.option("--email", prompt=True, help="E-mail do administrador.")
+    @click.option(
+        "--password",
+        prompt=True,
+        hide_input=True,
+        confirmation_prompt=True,
+        help="Senha do administrador.",
+    )
     def create_admin(name: str, email: str, password: str):
-        existing = db.session.execute(
-            db.select(User).where(User.email == email.strip().lower())
-        ).scalar_one_or_none()
-        if existing:
-            raise click.ClickException("Já existe usuário com esse e-mail.")
-        user = User(
-            name=name.strip(),
-            email=email.strip().lower(),
-            password_hash=hash_password(password),
-            is_admin=True,
-            is_active=True,
+        normalized_name = _normalize_name(name)
+        normalized_email = _normalize_email(email)
+        _validate_create_admin_input(
+            name=normalized_name,
+            email=normalized_email,
+            password=password,
         )
-        db.session.add(user)
-        db.session.commit()
+
+        try:
+            existing = db.session.execute(
+                db.select(User.id).where(User.email == normalized_email)
+            ).scalar_one_or_none()
+            if existing is not None:
+                raise click.ClickException("Já existe usuário com esse e-mail.")
+
+            user = User(
+                name=normalized_name,
+                email=normalized_email,
+                password_hash=hash_password(password),
+                is_admin=True,
+                is_active=True,
+            )
+            db.session.add(user)
+            db.session.commit()
+        except click.ClickException:
+            db.session.rollback()
+            raise
+        except IntegrityError as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                "Não foi possível criar o admin porque o e-mail já está em uso."
+            ) from exc
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                "Erro de banco de dados ao criar o admin."
+            ) from exc
+
         click.echo(f"Admin criado: {user.email}")
+
+
+def _normalize_name(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+def _normalize_email(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _validate_create_admin_input(*, name: str, email: str, password: str) -> None:
+    if not name:
+        raise click.ClickException("O nome é obrigatório.")
+
+    if len(name) > 255:
+        raise click.ClickException("O nome informado é muito longo.")
+
+    if not email or not _EMAIL_RE.match(email):
+        raise click.ClickException("Informe um e-mail válido.")
+
+    if len(email) > 255:
+        raise click.ClickException("O e-mail informado é muito longo.")
+
+    if not password:
+        raise click.ClickException("A senha é obrigatória.")
+
+    if len(password) < _MIN_PASSWORD_LENGTH:
+        raise click.ClickException(
+            f"A senha deve ter ao menos {_MIN_PASSWORD_LENGTH} caracteres."
+        )
