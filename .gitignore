@@ -13,3 +13,4 @@ uploads/
 logs/
 postgres_data/
 dist/
+/venv
