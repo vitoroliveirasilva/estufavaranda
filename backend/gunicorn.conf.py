@@ -7,6 +7,15 @@ from pathlib import Path
 
 _TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
 _FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
+_ALLOWED_WORKER_CLASSES = {
+    "sync",
+    "eventlet",
+    "gevent",
+    "tornado",
+    "gthread",
+    "gaiohttp",
+}
+_ALLOWED_LOG_LEVELS = {"debug", "info", "warning", "error", "critical"}
 
 
 def _env_str(name: str, default: str) -> str:
@@ -56,9 +65,19 @@ def _env_bool(name: str, default: bool) -> bool:
     raise RuntimeError(f"Invalid boolean for {name}: {raw_value!r}")
 
 
+def _env_choice(name: str, default: str, allowed: set[str]) -> str:
+    value = _env_str(name, default).lower()
+    if value not in allowed:
+        raise RuntimeError(
+            f"Invalid value for {name}: {value!r}. Allowed: {', '.join(sorted(allowed))}"
+        )
+    return value
+
+
 _CPU_COUNT = max(multiprocessing.cpu_count(), 1)
 _DEFAULT_WORKERS = max(2, min((_CPU_COUNT * 2) + 1, 8))
 
+wsgi_app = _env_str("GUNICORN_WSGI_APP", "wsgi:application")
 bind = _env_str("GUNICORN_BIND", os.getenv("BIND", "0.0.0.0:8000"))
 backlog = _env_int("GUNICORN_BACKLOG", 2048, minimum=64)
 workers = _env_int(
@@ -66,7 +85,7 @@ workers = _env_int(
     _env_int("WEB_CONCURRENCY", _DEFAULT_WORKERS, minimum=1),
     minimum=1,
 )
-worker_class = _env_str("GUNICORN_WORKER_CLASS", "gthread")
+worker_class = _env_choice("GUNICORN_WORKER_CLASS", "gthread", _ALLOWED_WORKER_CLASSES)
 threads = _env_int("GUNICORN_THREADS", 2, minimum=1)
 timeout = _env_int("GUNICORN_TIMEOUT", 60, minimum=1)
 graceful_timeout = _env_int("GUNICORN_GRACEFUL_TIMEOUT", 30, minimum=1)
@@ -77,7 +96,7 @@ preload_app = _env_bool("GUNICORN_PRELOAD", False)
 reload = _env_bool("GUNICORN_RELOAD", False)
 accesslog = _env_str("GUNICORN_ACCESSLOG", "-")
 errorlog = _env_str("GUNICORN_ERRORLOG", "-")
-loglevel = _env_str("GUNICORN_LOG_LEVEL", "info").lower()
+loglevel = _env_choice("GUNICORN_LOG_LEVEL", "info", _ALLOWED_LOG_LEVELS)
 capture_output = _env_bool("GUNICORN_CAPTURE_OUTPUT", True)
 access_log_format = _env_str(
     "GUNICORN_ACCESS_LOG_FORMAT",

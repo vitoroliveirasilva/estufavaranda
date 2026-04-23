@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from app import create_app
+from app.core.config import get_settings
 
 
 _TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
@@ -34,13 +35,22 @@ def _env_int(name: str, default: int) -> int:
         raise RuntimeError(f"Invalid integer for {name}: {raw_value!r}") from exc
 
 
-app = create_app()
+def build_app():
+    return create_app()
+
+
+app = build_app()
 application = app
 
 
-if __name__ == "__main__":
+def main() -> None:
+    settings = get_settings()
     app.run(
-        host=os.getenv("FLASK_HOST", "127.0.0.1"),
-        port=_env_int("FLASK_PORT", 5000),
-        debug=_env_bool("FLASK_DEBUG", False),
+        host=os.getenv("FLASK_HOST", settings.app_host),
+        port=_env_int("FLASK_PORT", settings.app_port),
+        debug=_env_bool("FLASK_DEBUG", settings.app_debug),
     )
+
+
+if __name__ == "__main__":
+    main()

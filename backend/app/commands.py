@@ -6,11 +6,14 @@ import click
 from flask import Flask
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from app.core.exceptions import ValidationError
 from app.core.security import hash_password
 from app.extensions import db
 from app.models import User
+from app.utils.validators import normalize_email, validate_password_strength
 
-_MIN_PASSWORD_LENGTH = 8
+_MAX_NAME_LENGTH = 150
+_MAX_EMAIL_LENGTH = 255
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -25,9 +28,9 @@ def register_commands(app: Flask) -> None:
         confirmation_prompt=True,
         help="Senha do administrador.",
     )
-    def create_admin(name: str, email: str, password: str):
+    def create_admin(name: str, email: str, password: str) -> None:
         normalized_name = _normalize_name(name)
-        normalized_email = _normalize_email(email)
+        normalized_email = normalize_email(email)
         _validate_create_admin_input(
             name=normalized_name,
             email=normalized_email,
@@ -63,6 +66,8 @@ def register_commands(app: Flask) -> None:
             raise click.ClickException(
                 "Erro de banco de dados ao criar o admin."
             ) from exc
+        finally:
+            db.session.remove()
 
         click.echo(f"Admin criado: {user.email}")
 
@@ -71,27 +76,24 @@ def _normalize_name(value: str) -> str:
     return " ".join(value.strip().split())
 
 
-def _normalize_email(value: str) -> str:
-    return value.strip().casefold()
-
-
 def _validate_create_admin_input(*, name: str, email: str, password: str) -> None:
     if not name:
         raise click.ClickException("O nome é obrigatório.")
 
-    if len(name) > 255:
+    if len(name) > _MAX_NAME_LENGTH:
         raise click.ClickException("O nome informado é muito longo.")
 
     if not email or not _EMAIL_RE.match(email):
         raise click.ClickException("Informe um e-mail válido.")
 
-    if len(email) > 255:
+    if len(email) > _MAX_EMAIL_LENGTH:
         raise click.ClickException("O e-mail informado é muito longo.")
 
     if not password:
         raise click.ClickException("A senha é obrigatória.")
 
-    if len(password) < _MIN_PASSWORD_LENGTH:
-        raise click.ClickException(
-            f"A senha deve ter ao menos {_MIN_PASSWORD_LENGTH} caracteres."
-        )
+    try:
+        validate_password_strength(password)
+    except ValidationError as exc:
+        detail_message = (exc.details or {}).get("new_password") or exc.message
+        raise click.ClickException(detail_message) from exc

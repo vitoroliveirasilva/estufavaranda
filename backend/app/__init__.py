@@ -32,7 +32,11 @@ def create_app(settings_override: Settings | None = None) -> Flask:
         SQLALCHEMY_ENGINE_OPTIONS=_build_engine_options(settings),
         JSON_SORT_KEYS=False,
         MAX_CONTENT_LENGTH=settings.max_upload_bytes,
+        MAX_FORM_MEMORY_SIZE=settings.max_upload_bytes,
         PROPAGATE_EXCEPTIONS=False,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=settings.secure_cookies,
+        SESSION_COOKIE_SAMESITE="Lax",
     )
     app.settings = settings
 
