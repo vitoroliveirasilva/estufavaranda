@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from flask import Flask
 
 from app.api.admin import admin_bp
@@ -14,14 +16,19 @@ from app.api.watering import watering_bp
 
 
 def register_blueprints(app: Flask) -> None:
-    app.register_blueprint(health_bp)
-    app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
-    app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
-    app.register_blueprint(plants_bp, url_prefix="/api/v1/plants")
-    app.register_blueprint(species_bp, url_prefix="/api/v1/species")
-    app.register_blueprint(events_bp, url_prefix="/api/v1/plants")
-    app.register_blueprint(photos_bp, url_prefix="/api/v1/plants")
-    app.register_blueprint(watering_bp, url_prefix="/api/v1/plants")
-    app.register_blueprint(climate_bp, url_prefix="/api/v1")
-    app.register_blueprint(notifications_bp, url_prefix="/api/v1")
-    app.register_blueprint(ai_bp, url_prefix="/api/v1/plants")
+    blueprints = (
+        (health_bp, None),
+        (auth_bp, "/api/v1/auth"),
+        (admin_bp, "/api/v1/admin"),
+        (plants_bp, "/api/v1/plants"),
+        (species_bp, "/api/v1/species"),
+        (events_bp, "/api/v1/plants"),
+        (photos_bp, "/api/v1/plants"),
+        (watering_bp, "/api/v1/plants"),
+        (climate_bp, "/api/v1"),
+        (notifications_bp, "/api/v1"),
+        (ai_bp, "/api/v1/plants"),
+    )
+
+    for blueprint, prefix in blueprints:
+        app.register_blueprint(blueprint, url_prefix=prefix)

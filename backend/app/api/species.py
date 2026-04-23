@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from flask import Blueprint, request
 
 from app.core.auth import admin_required, auth_required
+from app.core.exceptions import ValidationError
 from app.core.request import parse_json
 from app.core.response import ok
 from app.schemas import SpeciesCreateInput, SpeciesUpdateInput
@@ -9,45 +12,101 @@ from app.utils.pagination import build_pagination_meta
 
 species_bp = Blueprint("species", __name__)
 service = SpeciesService()
+_TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
+_FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
+
+
+def _parse_positive_int_arg(
+    name: str,
+    default: int,
+    *,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
+    raw_value = request.args.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(
+            "Parâmetro de consulta inválido.",
+            details={name: "Informe um número inteiro válido."},
+        ) from exc
+
+    if value < minimum or (maximum is not None and value > maximum):
+        limit_text = (
+            f"entre {minimum} e {maximum}" if maximum is not None else f">= {minimum}"
+        )
+        raise ValidationError(
+            "Parâmetro de consulta inválido.",
+            details={name: f"Informe um valor {limit_text}."},
+        )
+
+    return value
+
+
+def _parse_bool_arg(name: str, default: bool) -> bool:
+    raw_value = request.args.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+
+    raise ValidationError(
+        "Parâmetro de consulta inválido.",
+        details={name: "Use true ou false."},
+    )
+
+
+def _optional_search_arg() -> str | None:
+    raw_value = request.args.get("search")
+    if raw_value is None:
+        return None
+    value = raw_value.strip()
+    return value or None
+
+
+def _serialize_species(item) -> dict:
+    return {
+        "id": item.id,
+        "common_name": item.common_name,
+        "scientific_name": item.scientific_name,
+        "light_preference": item.light_preference,
+        "watering_frequency_days": item.watering_frequency_days,
+        "ideal_humidity_min": item.ideal_humidity_min,
+        "ideal_humidity_max": item.ideal_humidity_max,
+        "ideal_temp_min": (
+            float(item.ideal_temp_min) if item.ideal_temp_min is not None else None
+        ),
+        "ideal_temp_max": (
+            float(item.ideal_temp_max) if item.ideal_temp_max is not None else None
+        ),
+        "substrate_notes": item.substrate_notes,
+        "general_notes": item.general_notes,
+        "common_symptoms": item.common_symptoms,
+        "is_active": item.is_active,
+    }
 
 
 @species_bp.get("")
 @auth_required
 def list_species():
-    page = max(1, int(request.args.get("page", 1)))
-    page_size = min(100, max(1, int(request.args.get("page_size", 20))))
-    search = request.args.get("search")
-    active_only = request.args.get("active_only", "true").lower() != "false"
+    page = _parse_positive_int_arg("page", 1, minimum=1)
+    page_size = _parse_positive_int_arg("page_size", 20, minimum=1, maximum=100)
     items, total = service.list_species(
-        page=page, page_size=page_size, search=search, active_only=active_only
+        page=page,
+        page_size=page_size,
+        search=_optional_search_arg(),
+        active_only=_parse_bool_arg("active_only", True),
     )
     return ok(
-        [
-            {
-                "id": item.id,
-                "common_name": item.common_name,
-                "scientific_name": item.scientific_name,
-                "light_preference": item.light_preference,
-                "watering_frequency_days": item.watering_frequency_days,
-                "ideal_humidity_min": item.ideal_humidity_min,
-                "ideal_humidity_max": item.ideal_humidity_max,
-                "ideal_temp_min": (
-                    float(item.ideal_temp_min)
-                    if item.ideal_temp_min is not None
-                    else None
-                ),
-                "ideal_temp_max": (
-                    float(item.ideal_temp_max)
-                    if item.ideal_temp_max is not None
-                    else None
-                ),
-                "substrate_notes": item.substrate_notes,
-                "general_notes": item.general_notes,
-                "common_symptoms": item.common_symptoms,
-                "is_active": item.is_active,
-            }
-            for item in items
-        ],
+        [_serialize_species(item) for item in items],
         meta=build_pagination_meta(page=page, page_size=page_size, total=total),
     )
 
@@ -56,31 +115,7 @@ def list_species():
 @auth_required
 def get_species(species_id: int):
     species = service.get_species(species_id)
-    return ok(
-        {
-            "id": species.id,
-            "common_name": species.common_name,
-            "scientific_name": species.scientific_name,
-            "light_preference": species.light_preference,
-            "watering_frequency_days": species.watering_frequency_days,
-            "ideal_humidity_min": species.ideal_humidity_min,
-            "ideal_humidity_max": species.ideal_humidity_max,
-            "ideal_temp_min": (
-                float(species.ideal_temp_min)
-                if species.ideal_temp_min is not None
-                else None
-            ),
-            "ideal_temp_max": (
-                float(species.ideal_temp_max)
-                if species.ideal_temp_max is not None
-                else None
-            ),
-            "substrate_notes": species.substrate_notes,
-            "general_notes": species.general_notes,
-            "common_symptoms": species.common_symptoms,
-            "is_active": species.is_active,
-        }
-    )
+    return ok(_serialize_species(species))
 
 
 @species_bp.post("")

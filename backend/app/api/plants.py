@@ -1,36 +1,112 @@
+from __future__ import annotations
+
 from flask import Blueprint, g, request
 
 from app.core.auth import auth_required
+from app.core.exceptions import ValidationError
 from app.core.request import parse_json
 from app.core.response import no_content, ok
+from app.models import HealthStatus
 from app.schemas import PlantCreateInput, PlantUpdateInput
 from app.services import PlantService
+from app.utils import validate_choice
 from app.utils.pagination import build_pagination_meta
 
 plants_bp = Blueprint("plants", __name__)
 service = PlantService()
 
+_ALLOWED_HEALTH_STATUS = {item.value for item in HealthStatus}
+_TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
+_FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
+
+
+def _parse_positive_int_arg(
+    name: str,
+    default: int,
+    *,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
+    raw_value = request.args.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(
+            "Parâmetro de consulta inválido.",
+            details={name: "Informe um número inteiro válido."},
+        ) from exc
+
+    if value < minimum or (maximum is not None and value > maximum):
+        limit_text = (
+            f"entre {minimum} e {maximum}" if maximum is not None else f">= {minimum}"
+        )
+        raise ValidationError(
+            "Parâmetro de consulta inválido.",
+            details={name: f"Informe um valor {limit_text}."},
+        )
+
+    return value
+
+
+def _parse_bool_arg(name: str, default: bool) -> bool:
+    raw_value = request.args.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+
+    raise ValidationError(
+        "Parâmetro de consulta inválido.",
+        details={name: "Use true ou false."},
+    )
+
+
+def _optional_str_arg(name: str) -> str | None:
+    raw_value = request.args.get(name)
+    if raw_value is None:
+        return None
+    value = raw_value.strip()
+    return value or None
+
+
+def _optional_species_profile_id_arg() -> int | None:
+    raw_value = request.args.get("species_profile_id")
+    if raw_value is None or not raw_value.strip():
+        return None
+    return _parse_positive_int_arg("species_profile_id", 1, minimum=1)
+
+
+def _optional_health_status_arg() -> str | None:
+    value = _optional_str_arg("health_status")
+    if value is None:
+        return None
+    validate_choice(value, _ALLOWED_HEALTH_STATUS, "health_status")
+    return value
+
 
 @plants_bp.get("")
 @auth_required
 def list_plants():
-    page = max(1, int(request.args.get("page", 1)))
-    page_size = min(100, max(1, int(request.args.get("page_size", 20))))
-    search = request.args.get("search")
-    health_status = request.args.get("health_status")
-    species_profile_id = (
-        int(request.args["species_profile_id"])
-        if request.args.get("species_profile_id")
-        else None
+    page = _parse_positive_int_arg("page", 1, minimum=1)
+    page_size = _parse_positive_int_arg("page_size", 20, minimum=1, maximum=100)
+    include_archived = _parse_bool_arg(
+        "include_archived",
+        _parse_bool_arg("archived", False),
     )
-    include_archived = request.args.get("archived", "false").lower() == "true"
 
     items, total = service.list_plants(
         current_user=g.current_user,
         include_archived=include_archived,
-        health_status=health_status,
-        species_profile_id=species_profile_id,
-        search=search,
+        health_status=_optional_health_status_arg(),
+        species_profile_id=_optional_species_profile_id_arg(),
+        search=_optional_str_arg("search"),
         page=page,
         page_size=page_size,
     )
@@ -43,6 +119,9 @@ def list_plants():
                 "health_status": plant.health_status,
                 "location_label": plant.location_label,
                 "city_name": plant.city_name,
+                "archived_at": (
+                    plant.archived_at.isoformat() if plant.archived_at else None
+                ),
                 "species_profile": (
                     {
                         "id": plant.species_profile.id,
@@ -82,7 +161,14 @@ def update_plant(plant_id: int):
         plant=plant, **payload.model_dump(exclude_unset=True)
     )
     return ok(
-        {"id": updated.id, "name": updated.name, "health_status": updated.health_status}
+        {
+            "id": updated.id,
+            "name": updated.name,
+            "health_status": updated.health_status,
+            "archived_at": (
+                updated.archived_at.isoformat() if updated.archived_at else None
+            ),
+        }
     )
 
 

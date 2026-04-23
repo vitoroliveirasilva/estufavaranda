@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from flask import Blueprint, request
 
 from app.core.auth import admin_required
+from app.core.exceptions import ValidationError
 from app.core.request import parse_json
 from app.core.response import ok
 from app.schemas import (
@@ -16,14 +19,57 @@ auth_service = AuthService()
 user_service = UserService()
 
 
+def _parse_positive_int_arg(
+    name: str,
+    default: int,
+    *,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
+    raw_value = request.args.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(
+            "Parâmetro de consulta inválido.",
+            details={name: "Informe um número inteiro válido."},
+        ) from exc
+
+    if value < minimum or (maximum is not None and value > maximum):
+        limit_text = (
+            f"entre {minimum} e {maximum}" if maximum is not None else f">= {minimum}"
+        )
+        raise ValidationError(
+            "Parâmetro de consulta inválido.",
+            details={name: f"Informe um valor {limit_text}."},
+        )
+
+    return value
+
+
+def _pagination_args() -> tuple[int, int]:
+    page = _parse_positive_int_arg("page", 1, minimum=1)
+    page_size = _parse_positive_int_arg("page_size", 20, minimum=1, maximum=100)
+    return page, page_size
+
+
+def _clean_search_arg() -> str | None:
+    raw_value = request.args.get("search")
+    if raw_value is None:
+        return None
+    value = raw_value.strip()
+    return value or None
+
+
 @admin_bp.get("/users")
 @admin_required
 def list_users():
-    page = max(1, int(request.args.get("page", 1)))
-    page_size = min(100, max(1, int(request.args.get("page_size", 20))))
-    search = request.args.get("search")
+    page, page_size = _pagination_args()
     users, total = user_service.list_users(
-        page=page, page_size=page_size, search=search
+        page=page, page_size=page_size, search=_clean_search_arg()
     )
     return ok(
         [
@@ -117,8 +163,7 @@ def revoke_sessions(user_id: int):
 @admin_bp.get("/login-attempts")
 @admin_required
 def login_attempts():
-    page = max(1, int(request.args.get("page", 1)))
-    page_size = min(100, max(1, int(request.args.get("page_size", 20))))
+    page, page_size = _pagination_args()
     items, total = user_service.list_login_attempts(page=page, page_size=page_size)
     return ok(
         [

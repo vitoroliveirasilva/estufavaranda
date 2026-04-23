@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from flask import Blueprint, g
 
 from app.core.auth import auth_required
-from app.core.request import parse_json
 from app.core.response import no_content, ok
+from app.core.request import parse_json
+from app.extensions import limiter
 from app.schemas import (
     DeviceRegisterInput,
     ForgotPasswordInput,
@@ -11,7 +14,6 @@ from app.schemas import (
     RefreshInput,
     ResetPasswordInput,
 )
-from app.extensions import limiter
 from app.services import AuthService
 
 auth_bp = Blueprint("auth", __name__)
@@ -55,6 +57,9 @@ def me():
             "email": user.email,
             "is_admin": user.is_admin,
             "is_active": user.is_active,
+            "last_login_at": (
+                user.last_login_at.isoformat() if user.last_login_at else None
+            ),
         }
     )
 
