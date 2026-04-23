@@ -1,18 +1,90 @@
 from __future__ import annotations
 
+import re
+
 from app.core.config import get_settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.core.security import utcnow
 from app.models import HealthStatus, Plant
-from app.repositories import PlantRepository
+from app.repositories import PlantRepository, SpeciesRepository
 from app.services.watering_service import WateringService
 from app.utils import validate_choice
 
 
 class PlantService:
+    TEXT_FIELDS = {
+        "name",
+        "nickname",
+        "environment",
+        "light_exposure",
+        "ventilation",
+        "vase_description",
+        "substrate_description",
+        "location_label",
+        "city_name",
+        "notes",
+    }
+
     def __init__(self):
         self.repo = PlantRepository()
+        self.species = SpeciesRepository()
         self.watering = WateringService()
+
+    @staticmethod
+    def _normalize_city_name(value: str | None) -> str | None:
+        if value is None:
+            return None
+        collapsed = re.sub(r"\s+", " ", value.strip())
+        if not collapsed:
+            return None
+        return collapsed.title()
+
+    def _normalize_payload(self, payload: dict, *, partial: bool) -> dict:
+        normalized = dict(payload)
+        for field in self.TEXT_FIELDS:
+            if field in normalized:
+                value = self.repo.clean_text(normalized.get(field))
+                normalized[field] = value
+
+        if "city_name" in normalized:
+            normalized["city_name"] = self._normalize_city_name(
+                normalized.get("city_name")
+            )
+
+        if not partial and normalized.get("name") is None:
+            raise ValidationError(
+                "Dados inválidos.",
+                details={"name": "Informe um nome válido para a planta."},
+            )
+
+        if normalized.get("health_status") is not None:
+            normalized["health_status"] = (
+                str(normalized["health_status"]).strip().lower()
+            )
+            validate_choice(
+                normalized["health_status"],
+                {item.value for item in HealthStatus},
+                "health_status",
+            )
+
+        species_profile_id = normalized.get("species_profile_id")
+        if species_profile_id is not None:
+            if int(species_profile_id) <= 0:
+                raise ValidationError(
+                    "Dados inválidos.",
+                    details={"species_profile_id": "Informe um ID de espécie válido."},
+                )
+            species = self.species.get_by_id(int(species_profile_id))
+            if species is None:
+                raise NotFoundError("Perfil de espécie não encontrado.")
+            if not species.is_active:
+                raise ValidationError(
+                    "Dados inválidos.",
+                    details={"species_profile_id": "O perfil de espécie está inativo."},
+                )
+            normalized["species_profile_id"] = int(species_profile_id)
+
+        return normalized
 
     def list_plants(
         self,
@@ -25,6 +97,15 @@ class PlantService:
         page: int,
         page_size: int,
     ):
+        if health_status is not None:
+            cleaned_health_status = str(health_status).strip().lower()
+            validate_choice(
+                cleaned_health_status,
+                {item.value for item in HealthStatus},
+                "health_status",
+            )
+            health_status = cleaned_health_status
+
         user_id = (
             None
             if (current_user.is_admin and get_settings().enable_admin_read_all_plants)
@@ -50,42 +131,37 @@ class PlantService:
         return plant
 
     def create_plant(self, *, current_user, **payload) -> Plant:
-        validate_choice(
-            payload.get("health_status", HealthStatus.ATTENTION.value),
-            {item.value for item in HealthStatus},
-            "health_status",
-        )
-        plant = Plant(user_id=current_user.id, **payload)
+        normalized = self._normalize_payload(payload, partial=False)
+        normalized.setdefault("health_status", HealthStatus.ATTENTION.value)
+        plant = Plant(user_id=current_user.id, **normalized)
         self.repo.add(plant)
         self.repo.commit()
         return plant
 
     def update_plant(self, *, plant: Plant, **payload) -> Plant:
-        if "health_status" in payload and payload["health_status"] is not None:
-            validate_choice(
-                payload["health_status"],
-                {item.value for item in HealthStatus},
-                "health_status",
-            )
-        for field, value in payload.items():
+        normalized = self._normalize_payload(payload, partial=True)
+        for field, value in normalized.items():
             setattr(plant, field, value)
         self.repo.commit()
         return plant
 
     def archive_plant(self, *, plant: Plant) -> None:
-        plant.archived_at = utcnow()
-        self.repo.commit()
+        if plant.archived_at is None:
+            plant.archived_at = utcnow()
+            self.repo.commit()
 
     def build_detail(self, plant: Plant) -> dict:
         summary = self.watering.get_summary(plant)
         photos = sorted(
             [photo for photo in plant.photos if photo.removed_at is None],
-            key=lambda item: item.taken_at or item.uploaded_at,
+            key=lambda item: ((item.taken_at or item.uploaded_at), item.id),
             reverse=True,
         )[:5]
-        events = sorted(plant.events, key=lambda item: item.occurred_at, reverse=True)[
-            :10
-        ]
+        events = sorted(
+            plant.events,
+            key=lambda item: (item.occurred_at, item.id),
+            reverse=True,
+        )[:10]
         return {
             "id": plant.id,
             "user_id": plant.user_id,

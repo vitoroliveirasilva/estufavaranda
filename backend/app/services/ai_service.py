@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+
+from app.core.exceptions import ValidationError
 from app.core.security import utcnow
 from app.models import AIConversation, AIMessage, PlantDiagnosis
 from app.providers.ai import get_ai_provider
 from app.repositories import AIRepository, PlantRepository
 from app.services.watering_service import WateringService
+
+logger = logging.getLogger(__name__)
 
 
 class AIService:
@@ -76,7 +81,7 @@ class AIService:
         }
 
     def _rule_based_answer(
-        self, *, plant, question: str, context: dict
+        self, *, question: str, context: dict
     ) -> tuple[str, str, dict]:
         question_lower = question.lower()
         watering = context["watering_summary"]
@@ -129,27 +134,44 @@ class AIService:
         )
 
     def ask(self, *, current_user, plant, question: str) -> dict:
+        cleaned_question = " ".join((question or "").split())
+        if len(cleaned_question) < 3:
+            raise ValidationError(
+                "Dados inválidos.",
+                details={"question": "Informe uma pergunta válida."},
+            )
+
         context = self.build_context(plant)
         answer, confidence, considered_context = self._rule_based_answer(
-            plant=plant, question=question, context=context
+            question=cleaned_question,
+            context=context,
         )
 
         external_provider = get_ai_provider()
         metadata = {"considered_context": considered_context, "mode": "rules"}
         if external_provider is not None:
             try:
-                external = external_provider.ask(question=question, context=context)
-                answer = external.answer or answer
-                confidence = external.confidence or confidence
+                external = external_provider.ask(
+                    question=cleaned_question, context=context
+                )
+                if external.answer:
+                    answer = external.answer
+                if external.confidence:
+                    confidence = external.confidence
                 metadata["external"] = external.metadata
                 metadata["mode"] = "external"
             except Exception:
+                logger.exception(
+                    "ai.external_provider.failed",
+                    extra={"plant_id": plant.id, "user_id": current_user.id},
+                )
                 metadata["external_error"] = "fallback_to_rules"
 
+        now = utcnow()
         conversation = AIConversation(
             user_id=current_user.id,
             plant_id=plant.id,
-            title=question[:120],
+            title=cleaned_question[:120],
         )
         self.repo.add(conversation)
         self.repo.flush()
@@ -158,9 +180,9 @@ class AIService:
             AIMessage(
                 conversation_id=conversation.id,
                 role="user",
-                content=question,
-                metadata_json={"asked_at": utcnow().isoformat()},
-                created_at=utcnow(),
+                content=cleaned_question,
+                metadata_json={"asked_at": now.isoformat()},
+                created_at=now,
             )
         )
         self.repo.add(
@@ -187,14 +209,23 @@ class AIService:
 
         self.repo.commit()
         return {
+            "conversation_id": conversation.id,
             "answer": answer,
             "confidence": confidence,
             "considered_context": considered_context,
         }
 
     def list_conversations(
-        self, *, current_user, plant_id: int, page: int, page_size: int
+        self,
+        *,
+        current_user,
+        plant_id: int,
+        page: int,
+        page_size: int,
     ):
         return self.repo.list_conversations(
-            user_id=current_user.id, plant_id=plant_id, page=page, page_size=page_size
+            user_id=current_user.id,
+            plant_id=plant_id,
+            page=page,
+            page_size=page_size,
         )

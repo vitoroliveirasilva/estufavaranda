@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from math import floor
 
+from app.core.exceptions import ValidationError
 from app.core.security import utcnow
 from app.models import Plant, PlantEvent, WateringLog
 from app.models.base import PlantEventType
@@ -10,6 +11,8 @@ from app.utils import parse_datetime
 
 
 class WateringScoringService:
+    DEFAULT_BASE_FREQUENCY_DAYS = 4
+
     def calculate(
         self,
         *,
@@ -20,19 +23,21 @@ class WateringScoringService:
     ) -> dict:
         now = utcnow()
         days_since_watering = None
-        if latest_watering:
-            days_since_watering = max(0, (now - latest_watering.watered_at).days)
+        if latest_watering is not None:
+            delta = now - latest_watering.watered_at
+            days_since_watering = max(0, delta.days)
 
         base_frequency = (
             plant.species_profile.watering_frequency_days
-            if plant.species_profile
-            else 4
+            if plant.species_profile is not None
+            else self.DEFAULT_BASE_FREQUENCY_DAYS
         )
-        base_frequency = base_frequency or 4
+        base_frequency = max(int(base_frequency or self.DEFAULT_BASE_FREQUENCY_DAYS), 1)
 
         score = 15
         if days_since_watering is not None:
-            score += min(60, floor((days_since_watering / max(base_frequency, 1)) * 45))
+            ratio = days_since_watering / base_frequency
+            score += min(60, floor(ratio * 45))
         else:
             score += 35
 
@@ -40,26 +45,29 @@ class WateringScoringService:
         if recent_climate:
             latest_climate = recent_climate[0]
             if (
-                latest_climate.temperature_c
+                latest_climate.temperature_c is not None
                 and float(latest_climate.temperature_c) >= 30
             ):
                 score += 15
                 recent_heat = True
             if (
-                latest_climate.humidity_percent
+                latest_climate.humidity_percent is not None
                 and latest_climate.humidity_percent <= 40
             ):
                 score += 10
             if (
-                latest_climate.rain_mm
+                latest_climate.rain_mm is not None
                 and float(latest_climate.rain_mm) >= 10
-                and (plant.environment or "").lower() == "outdoor"
+                and (plant.environment or "").strip().lower() == "outdoor"
             ):
                 score -= 10
 
-        if (plant.light_exposure or "").lower() in {"afternoon_sun", "full_sun"}:
+        if (plant.light_exposure or "").strip().lower() in {
+            "afternoon_sun",
+            "full_sun",
+        }:
             score += 10
-        if (plant.environment or "").lower() == "outdoor":
+        if (plant.environment or "").strip().lower() == "outdoor":
             score += 5
 
         recent_wilt = any(
@@ -68,7 +76,7 @@ class WateringScoringService:
         if recent_wilt:
             score += 12
 
-        score = max(0, min(100, score))
+        score = max(0, min(100, int(score)))
         if score >= 80:
             risk_level = "high"
             suggestion = "revisar hoje"
@@ -101,18 +109,39 @@ class WateringService:
 
     def list_logs(self, *, plant_id: int, page: int, page_size: int):
         return self.repo.list_for_plant(
-            plant_id=plant_id, page=page, page_size=page_size
+            plant_id=plant_id,
+            page=page,
+            page_size=page_size,
         )
 
     def create_log(
-        self, *, plant: Plant, watered_at, quantity_ml: int | None, notes: str | None
+        self,
+        *,
+        plant: Plant,
+        watered_at,
+        quantity_ml: int | None,
+        notes: str | None,
     ) -> WateringLog:
         normalized_watered_at = parse_datetime(watered_at)
+        if normalized_watered_at > utcnow():
+            raise ValidationError(
+                "Dados inválidos.",
+                details={"watered_at": "A data de rega não pode estar no futuro."},
+            )
+
+        cleaned_quantity = None if quantity_ml is None else int(quantity_ml)
+        if cleaned_quantity is not None and cleaned_quantity < 0:
+            raise ValidationError(
+                "Dados inválidos.",
+                details={"quantity_ml": "A quantidade não pode ser negativa."},
+            )
+
+        cleaned_notes = self.repo.clean_text(notes)
         log = WateringLog(
             plant_id=plant.id,
             watered_at=normalized_watered_at,
-            quantity_ml=quantity_ml,
-            notes=notes,
+            quantity_ml=cleaned_quantity,
+            notes=cleaned_notes,
         )
         self.repo.add(log)
         self.repo.add(
@@ -121,9 +150,11 @@ class WateringService:
                 event_type=PlantEventType.WATERING.value,
                 occurred_at=normalized_watered_at,
                 title="Rega registrada",
-                description=notes,
+                description=cleaned_notes,
                 metadata_json=(
-                    {"quantity_ml": quantity_ml} if quantity_ml is not None else None
+                    {"quantity_ml": cleaned_quantity}
+                    if cleaned_quantity is not None
+                    else None
                 ),
             )
         )

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import secrets
 
-from app.core.exceptions import ConflictError, NotFoundError
+from sqlalchemy import func, select
+
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.security import hash_password
 from app.models import User
 from app.repositories import LoginAttemptRepository, TokenRepository, UserRepository
@@ -15,6 +17,13 @@ class UserService:
         self.tokens = TokenRepository()
         self.login_attempts = LoginAttemptRepository()
 
+    def _active_admins_count(self) -> int:
+        stmt = select(func.count(User.id)).where(
+            User.is_admin.is_(True),
+            User.is_active.is_(True),
+        )
+        return int(self.users.session.execute(stmt).scalar_one())
+
     def list_users(self, *, page: int, page_size: int, search: str | None):
         return self.users.list_users(page=page, page_size=page_size, search=search)
 
@@ -26,6 +35,7 @@ class UserService:
 
     def update_user(self, user_id: int, **changes) -> User:
         user = self.get_user(user_id)
+
         if "email" in changes and changes["email"] is not None:
             normalized_email = normalize_email(changes["email"])
             existing = self.users.get_by_email(normalized_email)
@@ -35,12 +45,50 @@ class UserService:
                     details={"email": "duplicated"},
                 )
             user.email = normalized_email
+
         if "name" in changes and changes["name"] is not None:
-            user.name = changes["name"].strip()
-        if "is_admin" in changes:
-            user.is_admin = changes["is_admin"]
-        if "is_active" in changes:
-            user.is_active = changes["is_active"]
+            cleaned_name = (changes["name"] or "").strip()
+            if not cleaned_name:
+                raise ValidationError(
+                    "Dados inválidos.",
+                    details={"name": "Informe um nome válido."},
+                )
+            user.name = cleaned_name
+
+        requested_is_admin = changes.get("is_admin")
+        if (
+            requested_is_admin is not None
+            and requested_is_admin is False
+            and user.is_admin
+        ):
+            if self._active_admins_count() <= 1 and user.is_active:
+                raise ValidationError(
+                    "Dados inválidos.",
+                    details={
+                        "is_admin": "Não é permitido remover o último administrador ativo."
+                    },
+                )
+            user.is_admin = False
+        elif requested_is_admin is not None:
+            user.is_admin = bool(requested_is_admin)
+
+        requested_is_active = changes.get("is_active")
+        if (
+            requested_is_active is not None
+            and requested_is_active is False
+            and user.is_admin
+        ):
+            if self._active_admins_count() <= 1:
+                raise ValidationError(
+                    "Dados inválidos.",
+                    details={
+                        "is_active": "Não é permitido desativar o último administrador ativo."
+                    },
+                )
+            user.is_active = False
+        elif requested_is_active is not None:
+            user.is_active = bool(requested_is_active)
+
         self.users.commit()
         return user
 
@@ -57,7 +105,9 @@ class UserService:
         return count
 
     def admin_reset_password(
-        self, user_id: int, new_password: str | None = None
+        self,
+        user_id: int,
+        new_password: str | None = None,
     ) -> dict:
         user = self.get_user(user_id)
         temp_password = new_password or f"Tmp{secrets.token_urlsafe(10)}9"
