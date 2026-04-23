@@ -1,4 +1,9 @@
+from __future__ import annotations
+
 from http import HTTPStatus
+from typing import Any
+
+ErrorDetails = dict[str, Any]
 
 
 class AppError(Exception):
@@ -6,10 +11,23 @@ class AppError(Exception):
     code = "app_error"
     message = "Não foi possível concluir a operação."
 
-    def __init__(self, message: str | None = None, *, details: dict | None = None):
-        super().__init__(message or self.message)
-        self.message = message or self.message
-        self.details = details or {}
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        details: ErrorDetails | None = None,
+    ) -> None:
+        resolved_message = message or self.message
+        super().__init__(resolved_message)
+        self.message = resolved_message
+        self.details: ErrorDetails = dict(details or {})
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "details": self.details,
+        }
 
 
 class ValidationError(AppError):
