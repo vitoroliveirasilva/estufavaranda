@@ -1,0 +1,52 @@
+from app.models.auth import Device, LoginAttempt, PasswordResetToken, RefreshToken, User
+from app.models.base import (
+    AIMessageRole,
+    Base,
+    HealthStatus,
+    MaintenanceTaskStatus,
+    NotificationStatus,
+    PhotoType,
+    PlantEventType,
+)
+from app.models.notification import NotificationDispatch, NotificationEvent
+from app.models.plant import (
+    AIConversation,
+    AIMessage,
+    ClimateSnapshot,
+    FertilizationLog,
+    MaintenanceTask,
+    Plant,
+    PlantDiagnosis,
+    PlantEvent,
+    PlantPhoto,
+    WateringLog,
+)
+from app.models.species import SpeciesProfile
+
+__all__ = [
+    "AIConversation",
+    "AIMessage",
+    "AIMessageRole",
+    "Base",
+    "ClimateSnapshot",
+    "Device",
+    "FertilizationLog",
+    "HealthStatus",
+    "LoginAttempt",
+    "MaintenanceTask",
+    "MaintenanceTaskStatus",
+    "NotificationDispatch",
+    "NotificationEvent",
+    "NotificationStatus",
+    "PasswordResetToken",
+    "PhotoType",
+    "Plant",
+    "PlantDiagnosis",
+    "PlantEvent",
+    "PlantEventType",
+    "PlantPhoto",
+    "RefreshToken",
+    "SpeciesProfile",
+    "User",
+    "WateringLog",
+]
