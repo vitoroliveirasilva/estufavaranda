@@ -96,3 +96,6 @@ secrets/
 *.key
 *.crt
 
+# Alembic / migrations
+migrations/**/__pycache__/
+migrations/**/*.py[cod]
