@@ -7,14 +7,21 @@ from app.repositories.base import BaseRepository
 
 class PhotoRepository(BaseRepository):
     def get_by_id(self, photo_id: int) -> PlantPhoto | None:
+        if photo_id <= 0:
+            return None
         return self.session.get(PlantPhoto, photo_id)
 
-    def list_for_plant(self, *, plant_id: int, page: int, page_size: int):
+    def list_for_plant(
+        self, *, plant_id: int, page: int, page_size: int
+    ) -> tuple[list[PlantPhoto], int]:
+        if plant_id <= 0:
+            return [], 0
         stmt = (
             db.select(PlantPhoto)
             .where(PlantPhoto.plant_id == plant_id, PlantPhoto.removed_at.is_(None))
             .order_by(
-                db.func.coalesce(PlantPhoto.taken_at, PlantPhoto.uploaded_at).desc()
+                db.func.coalesce(PlantPhoto.taken_at, PlantPhoto.uploaded_at).desc(),
+                PlantPhoto.id.desc(),
             )
         )
         return self.paginate(stmt, page=page, page_size=page_size)

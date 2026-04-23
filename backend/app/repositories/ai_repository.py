@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sqlalchemy.orm import selectinload
+
 from app.extensions import db
 from app.models import AIConversation
 from app.repositories.base import BaseRepository
@@ -7,16 +9,22 @@ from app.repositories.base import BaseRepository
 
 class AIRepository(BaseRepository):
     def list_conversations(
-        self, *, user_id: int, plant_id: int, page: int, page_size: int
-    ):
-        stmt = (
-            db.select(AIConversation)
-            .where(
-                AIConversation.user_id == user_id, AIConversation.plant_id == plant_id
-            )
-            .order_by(AIConversation.updated_at.desc())
-        )
+        self, *, user_id: int, plant_id: int | None, page: int, page_size: int
+    ) -> tuple[list[AIConversation], int]:
+        stmt = db.select(AIConversation).where(AIConversation.user_id == user_id)
+        if plant_id is None:
+            stmt = stmt.where(AIConversation.plant_id.is_(None))
+        else:
+            stmt = stmt.where(AIConversation.plant_id == plant_id)
+        stmt = stmt.order_by(AIConversation.updated_at.desc(), AIConversation.id.desc())
         return self.paginate(stmt, page=page, page_size=page_size)
 
     def get_conversation(self, conversation_id: int) -> AIConversation | None:
-        return self.session.get(AIConversation, conversation_id)
+        if conversation_id <= 0:
+            return None
+        stmt = (
+            db.select(AIConversation)
+            .where(AIConversation.id == conversation_id)
+            .options(selectinload(AIConversation.messages))
+        )
+        return self.session.execute(stmt).scalar_one_or_none()
