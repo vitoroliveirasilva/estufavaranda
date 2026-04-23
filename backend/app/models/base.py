@@ -2,15 +2,27 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import TypeVar
 
 from sqlalchemy import BigInteger, DateTime, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 BIGINT_SQL = BigInteger().with_variant(Integer, "sqlite")
 
+_StrEnumT = TypeVar("_StrEnumT", bound=StrEnum)
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def enum_values(enum_cls: type[_StrEnumT]) -> tuple[str, ...]:
+    return tuple(member.value for member in enum_cls)
+
+
+def enum_check_clause(enum_cls: type[_StrEnumT], *, column_name: str) -> str:
+    values_sql = ", ".join(repr(value) for value in enum_values(enum_cls))
+    return f"{column_name} IN ({values_sql})"
 
 
 class Base(DeclarativeBase):
@@ -34,6 +46,12 @@ class SoftArchiveMixin:
     @property
     def is_archived(self) -> bool:
         return self.archived_at is not None
+
+    def archive(self, *, archived_at: datetime | None = None) -> None:
+        self.archived_at = archived_at or utcnow()
+
+    def restore(self) -> None:
+        self.archived_at = None
 
 
 class HealthStatus(StrEnum):

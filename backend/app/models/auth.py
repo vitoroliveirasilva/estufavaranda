@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    true,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BIGINT_SQL, Base, TimestampMixin
@@ -17,24 +27,47 @@ class User(Base, TimestampMixin):
         String(255), nullable=False, unique=True, index=True
     )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=true(),
+    )
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
     refresh_tokens = relationship(
-        "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+        "RefreshToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     password_reset_tokens = relationship(
-        "PasswordResetToken", back_populates="user", cascade="all, delete-orphan"
+        "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     devices = relationship(
-        "Device", back_populates="user", cascade="all, delete-orphan"
+        "Device",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
-    plants = relationship("Plant", back_populates="user")
-    notifications = relationship("NotificationEvent", back_populates="user")
-    ai_conversations = relationship("AIConversation", back_populates="user")
+    plants = relationship("Plant", back_populates="user", passive_deletes=True)
+    notifications = relationship(
+        "NotificationEvent", back_populates="user", passive_deletes=True
+    )
+    ai_conversations = relationship(
+        "AIConversation", back_populates="user", passive_deletes=True
+    )
 
 
 class RefreshToken(Base):
@@ -42,6 +75,7 @@ class RefreshToken(Base):
     __table_args__ = (
         Index("ix_refresh_tokens_user_id", "user_id"),
         Index("ix_refresh_tokens_expires_at", "expires_at"),
+        Index("ix_refresh_tokens_revoked_at", "revoked_at"),
     )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
@@ -83,6 +117,11 @@ class LoginAttempt(Base):
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        Index("ix_password_reset_tokens_user_id", "user_id"),
+        Index("ix_password_reset_tokens_expires_at", "expires_at"),
+        Index("ix_password_reset_tokens_used_at", "used_at"),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
@@ -104,19 +143,28 @@ class PasswordResetToken(Base):
 
 class Device(Base, TimestampMixin):
     __tablename__ = "devices"
+    __table_args__ = (
+        Index("ix_devices_user_id", "user_id"),
+        CheckConstraint(
+            "platform <> ''",
+            name="ck_devices_platform_not_blank",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
         BIGINT_SQL,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     device_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     platform: Mapped[str] = mapped_column(String(30), nullable=False)
     push_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     notifications_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=true(),
     )
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,8 +23,10 @@ from app.models.base import (
     HealthStatus,
     MaintenanceTaskStatus,
     PhotoType,
+    PlantEventType,
     SoftArchiveMixin,
     TimestampMixin,
+    enum_check_clause,
 )
 
 
@@ -33,6 +36,10 @@ class Plant(Base, TimestampMixin, SoftArchiveMixin):
         Index("ix_plants_user_id", "user_id"),
         Index("ix_plants_species_profile_id", "species_profile_id"),
         Index("ix_plants_health_status", "health_status"),
+        CheckConstraint(
+            enum_check_clause(HealthStatus, column_name="health_status"),
+            name="ck_plants_health_status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
@@ -60,34 +67,70 @@ class Plant(Base, TimestampMixin, SoftArchiveMixin):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     health_status: Mapped[str] = mapped_column(
-        String(50), nullable=False, default=HealthStatus.ATTENTION.value
+        String(50),
+        nullable=False,
+        default=HealthStatus.ATTENTION.value,
+        server_default=text(f"'{HealthStatus.ATTENTION.value}'"),
     )
 
     user = relationship("User", back_populates="plants")
-    species_profile = relationship("SpeciesProfile", back_populates="plants")
+    species_profile = relationship(
+        "SpeciesProfile",
+        back_populates="plants",
+        passive_deletes=True,
+    )
     events = relationship(
-        "PlantEvent", back_populates="plant", cascade="all, delete-orphan"
+        "PlantEvent",
+        back_populates="plant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     photos = relationship(
-        "PlantPhoto", back_populates="plant", cascade="all, delete-orphan"
+        "PlantPhoto",
+        back_populates="plant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     watering_logs = relationship(
-        "WateringLog", back_populates="plant", cascade="all, delete-orphan"
+        "WateringLog",
+        back_populates="plant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     fertilization_logs = relationship(
-        "FertilizationLog", back_populates="plant", cascade="all, delete-orphan"
+        "FertilizationLog",
+        back_populates="plant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     maintenance_tasks = relationship(
-        "MaintenanceTask", back_populates="plant", cascade="all, delete-orphan"
+        "MaintenanceTask",
+        back_populates="plant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     climate_snapshots = relationship(
-        "ClimateSnapshot", back_populates="plant", cascade="all, delete-orphan"
+        "ClimateSnapshot",
+        back_populates="plant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
-    notifications = relationship("NotificationEvent", back_populates="plant")
+    notifications = relationship(
+        "NotificationEvent",
+        back_populates="plant",
+        passive_deletes=True,
+    )
     diagnoses = relationship(
-        "PlantDiagnosis", back_populates="plant", cascade="all, delete-orphan"
+        "PlantDiagnosis",
+        back_populates="plant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
-    ai_conversations = relationship("AIConversation", back_populates="plant")
+    ai_conversations = relationship(
+        "AIConversation",
+        back_populates="plant",
+        passive_deletes=True,
+    )
 
 
 class PlantEvent(Base, TimestampMixin):
@@ -96,6 +139,10 @@ class PlantEvent(Base, TimestampMixin):
         Index("ix_plant_events_plant_id", "plant_id"),
         Index("ix_plant_events_event_type", "event_type"),
         Index("ix_plant_events_occurred_at", "occurred_at"),
+        CheckConstraint(
+            enum_check_clause(PlantEventType, column_name="event_type"),
+            name="ck_plant_events_event_type",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
@@ -119,6 +166,10 @@ class PlantPhoto(Base, TimestampMixin):
         Index("ix_plant_photos_plant_id", "plant_id"),
         Index("ix_plant_photos_photo_type", "photo_type"),
         Index("ix_plant_photos_taken_at", "taken_at"),
+        CheckConstraint(
+            enum_check_clause(PhotoType, column_name="photo_type"),
+            name="ck_plant_photos_photo_type",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
@@ -129,7 +180,10 @@ class PlantPhoto(Base, TimestampMixin):
     original_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     photo_type: Mapped[str] = mapped_column(
-        String(30), nullable=False, default=PhotoType.ROUTINE.value
+        String(30),
+        nullable=False,
+        default=PhotoType.ROUTINE.value,
+        server_default=text(f"'{PhotoType.ROUTINE.value}'"),
     )
     caption: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -152,6 +206,10 @@ class WateringLog(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_watering_logs_plant_id", "plant_id"),
         Index("ix_watering_logs_watered_at", "watered_at"),
+        CheckConstraint(
+            "quantity_ml IS NULL OR quantity_ml >= 0",
+            name="ck_watering_logs_quantity_ml_non_negative",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
@@ -169,6 +227,10 @@ class WateringLog(Base, TimestampMixin):
 
 class FertilizationLog(Base, TimestampMixin):
     __tablename__ = "fertilization_logs"
+    __table_args__ = (
+        Index("ix_fertilization_logs_plant_id", "plant_id"),
+        Index("ix_fertilization_logs_fertilized_at", "fertilized_at"),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
     plant_id: Mapped[int] = mapped_column(
@@ -186,8 +248,11 @@ class FertilizationLog(Base, TimestampMixin):
 class MaintenanceTask(Base, TimestampMixin):
     __tablename__ = "maintenance_tasks"
     __table_args__ = (
+        Index("ix_maintenance_tasks_plant_id", "plant_id"),
+        Index("ix_maintenance_tasks_due_at", "due_at"),
+        Index("ix_maintenance_tasks_status", "status"),
         CheckConstraint(
-            "status IN ('pending', 'done', 'canceled')",
+            enum_check_clause(MaintenanceTaskStatus, column_name="status"),
             name="ck_maintenance_tasks_status",
         ),
     )
@@ -201,7 +266,10 @@ class MaintenanceTask(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     status: Mapped[str] = mapped_column(
-        String(30), nullable=False, default=MaintenanceTaskStatus.PENDING.value
+        String(30),
+        nullable=False,
+        default=MaintenanceTaskStatus.PENDING.value,
+        server_default=text(f"'{MaintenanceTaskStatus.PENDING.value}'"),
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -214,6 +282,10 @@ class ClimateSnapshot(Base):
         Index("ix_climate_snapshots_plant_id", "plant_id"),
         Index("ix_climate_snapshots_city_name", "city_name"),
         Index("ix_climate_snapshots_recorded_at", "recorded_at"),
+        CheckConstraint(
+            "humidity_percent IS NULL OR (humidity_percent >= 0 AND humidity_percent <= 100)",
+            name="ck_climate_snapshots_humidity_percent_range",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
@@ -239,6 +311,10 @@ class ClimateSnapshot(Base):
 
 class AIConversation(Base, TimestampMixin):
     __tablename__ = "ai_conversations"
+    __table_args__ = (
+        Index("ix_ai_conversations_user_id", "user_id"),
+        Index("ix_ai_conversations_plant_id", "plant_id"),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
@@ -252,15 +328,20 @@ class AIConversation(Base, TimestampMixin):
     user = relationship("User", back_populates="ai_conversations")
     plant = relationship("Plant", back_populates="ai_conversations")
     messages = relationship(
-        "AIMessage", back_populates="conversation", cascade="all, delete-orphan"
+        "AIMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
 class AIMessage(Base):
     __tablename__ = "ai_messages"
     __table_args__ = (
+        Index("ix_ai_messages_conversation_id", "conversation_id"),
+        Index("ix_ai_messages_created_at", "created_at"),
         CheckConstraint(
-            "role IN ('system', 'user', 'assistant')",
+            enum_check_clause(AIMessageRole, column_name="role"),
             name="ck_ai_messages_role",
         ),
     )
@@ -272,7 +353,10 @@ class AIMessage(Base):
         nullable=False,
     )
     role: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=AIMessageRole.USER.value
+        String(20),
+        nullable=False,
+        default=AIMessageRole.USER.value,
+        server_default=text(f"'{AIMessageRole.USER.value}'"),
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -285,6 +369,11 @@ class AIMessage(Base):
 
 class PlantDiagnosis(Base):
     __tablename__ = "plant_diagnoses"
+    __table_args__ = (
+        Index("ix_plant_diagnoses_plant_id", "plant_id"),
+        Index("ix_plant_diagnoses_source", "source"),
+        Index("ix_plant_diagnoses_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
     plant_id: Mapped[int] = mapped_column(
