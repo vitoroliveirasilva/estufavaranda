@@ -85,10 +85,8 @@ def _init_extensions(app: Flask, settings: Settings) -> None:
         supports_credentials=False,
     )
 
-    default_limits = (
-        [settings.rate_limit_default] if settings.rate_limit_default else []
-    )
-    limiter.init_app(app, default_limits=default_limits)
+    app.config["RATELIMIT_DEFAULT"] = settings.rate_limit_default or ""
+    limiter.init_app(app)
 
 
 def _register_response_hooks(app: Flask) -> None:
