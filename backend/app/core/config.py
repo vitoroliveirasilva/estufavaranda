@@ -95,6 +95,21 @@ class Settings(BaseSettings):
         default=10, alias="RATE_LIMIT_LOGIN_WINDOW_MINUTES"
     )
     login_block_minutes: int = Field(default=15, alias="LOGIN_BLOCK_MINUTES")
+    auth_rate_limit_window_minutes: int = Field(
+        default=10, alias="AUTH_RATE_LIMIT_WINDOW_MINUTES"
+    )
+    auth_forgot_password_limit_attempts: int = Field(
+        default=5, alias="AUTH_FORGOT_PASSWORD_LIMIT_ATTEMPTS"
+    )
+    auth_reset_password_limit_attempts: int = Field(
+        default=5, alias="AUTH_RESET_PASSWORD_LIMIT_ATTEMPTS"
+    )
+    auth_refresh_limit_attempts: int = Field(
+        default=30, alias="AUTH_REFRESH_LIMIT_ATTEMPTS"
+    )
+    auth_rate_limit_retention_hours: int = Field(
+        default=72, alias="AUTH_RATE_LIMIT_RETENTION_HOURS"
+    )
 
     smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
@@ -223,6 +238,11 @@ class Settings(BaseSettings):
         "rate_limit_login_window_minutes",
         "login_block_minutes",
         "climate_request_timeout_seconds",
+        "auth_rate_limit_window_minutes",
+        "auth_forgot_password_limit_attempts",
+        "auth_reset_password_limit_attempts",
+        "auth_refresh_limit_attempts",
+        "auth_rate_limit_retention_hours",
     )
     @classmethod
     def _validate_positive_integers(cls, value: int) -> int:

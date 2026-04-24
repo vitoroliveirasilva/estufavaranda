@@ -15,7 +15,7 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging
 from app.core.response import error_payload
-from app.extensions import cors, db, limiter, migrate
+from app.extensions import cors, db, migrate
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +84,6 @@ def _init_extensions(app: Flask, settings: Settings) -> None:
         resources={r"/api/*": {"origins": settings.cors_origins_list or "*"}},
         supports_credentials=False,
     )
-
-    app.config["RATELIMIT_DEFAULT"] = settings.rate_limit_default or ""
-    limiter.init_app(app)
 
 
 def _register_response_hooks(app: Flask) -> None:

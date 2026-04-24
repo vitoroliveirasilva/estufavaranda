@@ -3,9 +3,8 @@ from __future__ import annotations
 from flask import Blueprint, g
 
 from app.core.auth import auth_required
-from app.core.response import no_content, ok
 from app.core.request import parse_json
-from app.extensions import limiter
+from app.core.response import no_content, ok
 from app.schemas import (
     DeviceRegisterInput,
     ForgotPasswordInput,
@@ -21,7 +20,6 @@ service = AuthService()
 
 
 @auth_bp.post("/login")
-@limiter.limit("10/minute")
 def login():
     payload = parse_json(LoginInput)
     return ok(
@@ -65,7 +63,6 @@ def me():
 
 
 @auth_bp.post("/forgot-password")
-@limiter.limit("5/minute")
 def forgot_password():
     payload = parse_json(ForgotPasswordInput)
     service.forgot_password(email=payload.email)
@@ -77,7 +74,6 @@ def forgot_password():
 
 
 @auth_bp.post("/reset-password")
-@limiter.limit("5/minute")
 def reset_password():
     payload = parse_json(ResetPasswordInput)
     service.reset_password(token=payload.token, new_password=payload.new_password)

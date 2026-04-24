@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import timedelta
 
 from flask import request
 from sqlalchemy import delete
 
 from app.core.config import get_settings
-from app.core.exceptions import AuthenticationError, ConflictError, TooManyRequestsError, ValidationError
+from app.core.exceptions import (
+    AuthenticationError,
+    ConflictError,
+    TooManyRequestsError,
+    ValidationError,
+)
 from app.core.security import (
     create_access_token,
     generate_opaque_token,
@@ -18,6 +24,7 @@ from app.core.security import (
 )
 from app.models import PasswordResetToken, RefreshToken, User
 from app.repositories import (
+    AuthRateLimitRepository,
     DeviceRepository,
     LoginAttemptRepository,
     TokenRepository,
@@ -33,6 +40,7 @@ class AuthService:
         self.tokens = TokenRepository()
         self.attempts = LoginAttemptRepository()
         self.devices = DeviceRepository()
+        self.rate_limits = AuthRateLimitRepository()
         self.mailer = MailService()
 
     @staticmethod
@@ -48,6 +56,72 @@ class AuthService:
     def _user_agent() -> str | None:
         user_agent = request.headers.get("User-Agent", "").strip()
         return user_agent or None
+
+    @staticmethod
+    def _hash_scope_value(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def _build_action_scopes(
+        self,
+        *,
+        client_ip: str | None,
+        email: str | None = None,
+        token: str | None = None,
+    ) -> list[str]:
+        scopes: list[str] = []
+
+        if client_ip:
+            scopes.append(f"ip:{client_ip.strip()}")
+
+        if email:
+            scopes.append(f"email:{self._hash_scope_value(normalize_email(email))}")
+
+        if token:
+            cleaned_token = token.strip()
+            if cleaned_token:
+                scopes.append(f"token:{self._hash_scope_value(cleaned_token)}")
+
+        return list(dict.fromkeys(scope for scope in scopes if scope))
+
+    def _enforce_action_rate_limit(
+        self,
+        *,
+        action: str,
+        limit: int,
+        window_minutes: int,
+        scopes: list[str],
+    ) -> None:
+        clean_scopes = list(dict.fromkeys(scope for scope in scopes if scope))
+        if limit <= 0 or window_minutes <= 0 or not clean_scopes:
+            return
+
+        now = utcnow()
+        window_start = now - timedelta(minutes=window_minutes)
+
+        for scope in clean_scopes:
+            if (
+                self.rate_limits.count_recent(
+                    action=action,
+                    scope_key=scope,
+                    window_start=window_start,
+                )
+                >= limit
+            ):
+                raise TooManyRequestsError(
+                    "Muitas tentativas. Tente novamente mais tarde."
+                )
+
+        self.rate_limits.register_hits(
+            action=action,
+            scope_keys=clean_scopes,
+            created_at=now,
+        )
+
+        retention_hours = max(get_settings().auth_rate_limit_retention_hours, 1)
+        self.rate_limits.delete_older_than(
+            older_than=now - timedelta(hours=retention_hours)
+        )
+        self.rate_limits.commit()
 
     def login(self, *, email: str, password: str, device_name: str | None) -> dict:
         settings = get_settings()
@@ -118,8 +192,27 @@ class AuthService:
         }
 
     def refresh(self, *, refresh_token: str) -> dict:
+        settings = get_settings()
         now = utcnow()
-        token = self.tokens.get_active_refresh_token(hash_refresh_token(refresh_token))
+        cleaned_refresh_token = (refresh_token or "").strip()
+        client_ip = self._client_ip()
+
+        self._enforce_action_rate_limit(
+            action="auth_refresh",
+            limit=settings.auth_refresh_limit_attempts,
+            window_minutes=settings.auth_rate_limit_window_minutes,
+            scopes=self._build_action_scopes(
+                client_ip=client_ip,
+                token=cleaned_refresh_token or None,
+            ),
+        )
+
+        if not cleaned_refresh_token:
+            raise AuthenticationError("Credenciais inválidas.")
+
+        token = self.tokens.get_active_refresh_token(
+            hash_refresh_token(cleaned_refresh_token)
+        )
         if not token or not token.user or not token.user.is_active:
             raise AuthenticationError("Credenciais inválidas.")
 
@@ -140,6 +233,18 @@ class AuthService:
     def forgot_password(self, *, email: str) -> None:
         settings = get_settings()
         normalized_email = normalize_email(email)
+        client_ip = self._client_ip()
+
+        self._enforce_action_rate_limit(
+            action="auth_forgot_password",
+            limit=settings.auth_forgot_password_limit_attempts,
+            window_minutes=settings.auth_rate_limit_window_minutes,
+            scopes=self._build_action_scopes(
+                client_ip=client_ip,
+                email=normalized_email,
+            ),
+        )
+
         user = self.users.get_by_email(normalized_email)
         if not user or not user.is_active:
             return
@@ -171,7 +276,20 @@ class AuthService:
         self.mailer.send_password_reset(to_email=user.email, reset_url=reset_url)
 
     def reset_password(self, *, token: str, new_password: str) -> None:
+        settings = get_settings()
         cleaned_token = (token or "").strip()
+        client_ip = self._client_ip()
+
+        self._enforce_action_rate_limit(
+            action="auth_reset_password",
+            limit=settings.auth_reset_password_limit_attempts,
+            window_minutes=settings.auth_rate_limit_window_minutes,
+            scopes=self._build_action_scopes(
+                client_ip=client_ip,
+                token=cleaned_token or None,
+            ),
+        )
+
         if not cleaned_token:
             raise AuthenticationError("Token inválido ou expirado.")
 
