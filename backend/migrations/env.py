@@ -4,11 +4,13 @@ from logging.config import fileConfig
 
 from alembic import context
 from flask import current_app
+from pathlib import Path
 
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    if config.config_file_name and Path(config.config_file_name).exists():
+        fileConfig(config.config_file_name)
 
 
 def get_engine():
