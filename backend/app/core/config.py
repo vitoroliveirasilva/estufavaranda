@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -13,6 +14,9 @@ _ALLOWED_AI_PROVIDER_MODES = {"rules", "external"}
 _ALLOWED_PUSH_PROVIDER_MODES = {"log", "external"}
 _ALLOWED_CLIMATE_PROVIDERS = {"open_meteo"}
 _ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _split_csv(value: str) -> list[str]:
@@ -32,7 +36,10 @@ def _validate_http_url(value: str, *, field_name: str) -> str:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(
+            str(_PROJECT_ROOT / ".env"),
+            str(_BACKEND_ROOT / ".env"),
+        ),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -160,14 +167,21 @@ class Settings(BaseSettings):
             return value.strip().upper()
         return value
 
-    @field_validator("climate_provider", "ai_provider_mode", "push_provider_mode", mode="before")
+    @field_validator(
+        "climate_provider", "ai_provider_mode", "push_provider_mode", mode="before"
+    )
     @classmethod
     def _normalize_provider_mode(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
         return value
 
-    @field_validator("cors_origins", "allowed_image_extensions", "allowed_image_mime_types", mode="before")
+    @field_validator(
+        "cors_origins",
+        "allowed_image_extensions",
+        "allowed_image_mime_types",
+        mode="before",
+    )
     @classmethod
     def _normalize_csv_fields(cls, value: object) -> object:
         if isinstance(value, str):
@@ -279,7 +293,11 @@ class Settings(BaseSettings):
             raise ValueError("APP_DEBUG não pode estar habilitado em produção.")
 
         if self.app_env == "production":
-            for field_name in ("app_secret_key", "access_token_secret", "refresh_token_secret"):
+            for field_name in (
+                "app_secret_key",
+                "access_token_secret",
+                "refresh_token_secret",
+            ):
                 value = getattr(self, field_name)
                 if len(value) < 16:
                     raise ValueError(
@@ -289,7 +307,11 @@ class Settings(BaseSettings):
         if self.ai_provider_mode == "external":
             missing = [
                 field_name
-                for field_name in ("ai_provider_url", "ai_provider_key", "ai_provider_model")
+                for field_name in (
+                    "ai_provider_url",
+                    "ai_provider_key",
+                    "ai_provider_model",
+                )
                 if not getattr(self, field_name)
             ]
             if missing:
@@ -301,10 +323,18 @@ class Settings(BaseSettings):
             _validate_http_url(self.ai_provider_url or "", field_name="AI_PROVIDER_URL")
 
         if self.smtp_host and not self.smtp_from_email:
-            raise ValueError("SMTP_FROM_EMAIL é obrigatório quando SMTP_HOST estiver configurado.")
+            raise ValueError(
+                "SMTP_FROM_EMAIL é obrigatório quando SMTP_HOST estiver configurado."
+            )
 
-        if self.cors_origins_list and "*" in self.cors_origins_list and len(self.cors_origins_list) > 1:
-            raise ValueError('CORS_ORIGINS não pode misturar "*" com origens específicas.')
+        if (
+            self.cors_origins_list
+            and "*" in self.cors_origins_list
+            and len(self.cors_origins_list) > 1
+        ):
+            raise ValueError(
+                'CORS_ORIGINS não pode misturar "*" com origens específicas.'
+            )
 
         return self
 
