@@ -10,8 +10,8 @@ from sqlalchemy import (
     Index,
     String,
     Text,
-    true,
     false,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -110,6 +110,33 @@ class LoginAttempt(Base):
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class AuthRateLimitEvent(Base):
+    __tablename__ = "auth_rate_limit_events"
+    __table_args__ = (
+        Index("ix_auth_rate_limit_events_action", "action"),
+        Index("ix_auth_rate_limit_events_scope_key", "scope_key"),
+        Index("ix_auth_rate_limit_events_created_at", "created_at"),
+        Index(
+            "ix_auth_rate_limit_events_action_scope_created_at",
+            "action",
+            "scope_key",
+            "created_at",
+        ),
+        CheckConstraint("action <> ''", name="ck_auth_rate_limit_events_action_not_blank"),
+        CheckConstraint(
+            "scope_key <> ''",
+            name="ck_auth_rate_limit_events_scope_key_not_blank",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

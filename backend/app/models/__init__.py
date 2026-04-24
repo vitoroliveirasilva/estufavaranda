@@ -1,4 +1,11 @@
-from app.models.auth import Device, LoginAttempt, PasswordResetToken, RefreshToken, User
+from app.models.auth import (
+    AuthRateLimitEvent,
+    Device,
+    LoginAttempt,
+    PasswordResetToken,
+    RefreshToken,
+    User,
+)
 from app.models.base import (
     AIMessageRole,
     Base,
@@ -27,6 +34,7 @@ __all__ = [
     "AIConversation",
     "AIMessage",
     "AIMessageRole",
+    "AuthRateLimitEvent",
     "Base",
     "ClimateSnapshot",
     "Device",
