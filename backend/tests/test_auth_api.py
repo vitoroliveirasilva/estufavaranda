@@ -1,4 +1,4 @@
-from conftest import login
+from tests.conftest import login
 
 
 def test_login_refresh_logout_and_me_flow(client):

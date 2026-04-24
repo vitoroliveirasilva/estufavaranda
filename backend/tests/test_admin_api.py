@@ -1,4 +1,4 @@
-from conftest import login
+from tests.conftest import login
 
 
 def test_admin_can_create_and_list_user(client, auth_headers_for):
