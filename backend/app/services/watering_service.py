@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from math import floor
 
 from app.core.exceptions import ValidationError
@@ -8,6 +9,14 @@ from app.models import Plant, PlantEvent, WateringLog
 from app.models.base import PlantEventType
 from app.repositories import PlantRepository, WateringRepository
 from app.utils import parse_datetime
+
+
+def _coerce_aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class WateringScoringService:
@@ -22,9 +31,13 @@ class WateringScoringService:
         recent_climate: list,
     ) -> dict:
         now = utcnow()
+        latest_watering_at = _coerce_aware_utc(
+            latest_watering.watered_at if latest_watering is not None else None
+        )
+
         days_since_watering = None
-        if latest_watering is not None:
-            delta = now - latest_watering.watered_at
+        if latest_watering_at is not None:
+            delta = now - latest_watering_at
             days_since_watering = max(0, delta.days)
 
         base_frequency = (
@@ -123,6 +136,13 @@ class WateringService:
         notes: str | None,
     ) -> WateringLog:
         normalized_watered_at = parse_datetime(watered_at)
+        normalized_watered_at = _coerce_aware_utc(normalized_watered_at)
+        if normalized_watered_at is None:
+            raise ValidationError(
+                "Dados inválidos.",
+                details={"watered_at": "Informe uma data de rega válida."},
+            )
+
         if normalized_watered_at > utcnow():
             raise ValidationError(
                 "Dados inválidos.",
@@ -174,7 +194,7 @@ class WateringService:
         summary["last_watering"] = (
             {
                 "id": latest_watering.id,
-                "watered_at": latest_watering.watered_at.isoformat(),
+                "watered_at": _coerce_aware_utc(latest_watering.watered_at).isoformat(),
                 "quantity_ml": latest_watering.quantity_ml,
                 "notes": latest_watering.notes,
             }
