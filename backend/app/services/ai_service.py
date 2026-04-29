@@ -1,219 +1,120 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from typing import Any
 
 from app.core.exceptions import ValidationError
 from app.core.security import utcnow
 from app.models import AIConversation, AIMessage, PlantDiagnosis
-from app.providers.ai import get_ai_provider
-from app.repositories import AIRepository, PlantRepository
-from app.services.watering_service import WateringService
+from app.repositories import AIRepository
+from app.services.local_plant_ai_engine import LocalPlantAiEngine, LocalPlantAiResult
+from app.services.plant_ai_context import PlantAiContextBuilder
 
 logger = logging.getLogger(__name__)
 
 
 class AIService:
-    def __init__(self):
-        self.repo = AIRepository()
-        self.plants = PlantRepository()
-        self.watering = WateringService()
+    MIN_QUESTION_LENGTH = 5
+    MAX_QUESTION_LENGTH = 2000
+    TITLE_MAX_LENGTH = 120
 
-    def build_context(self, plant) -> dict:
-        recent_events = self.plants.recent_events(plant.id, limit=8)
-        recent_photos = self.plants.recent_photos(plant.id, limit=5)
-        recent_climate = self.plants.recent_climate_snapshots(plant.id, limit=5)
-        watering_summary = self.watering.get_summary(plant)
+    def __init__(
+        self,
+        *,
+        repo: AIRepository | None = None,
+        context_builder: PlantAiContextBuilder | None = None,
+        engine: LocalPlantAiEngine | None = None,
+    ) -> None:
+        self.repo = repo or AIRepository()
+        self.context_builder = context_builder or PlantAiContextBuilder()
+        self.engine = engine or LocalPlantAiEngine()
 
-        return {
-            "plant_name": plant.name,
-            "species": (
-                plant.species_profile.common_name if plant.species_profile else None
-            ),
-            "scientific_name": (
-                plant.species_profile.scientific_name if plant.species_profile else None
-            ),
-            "environment": plant.environment,
-            "light_exposure": plant.light_exposure,
-            "ventilation": plant.ventilation,
-            "location_label": plant.location_label,
-            "city_name": plant.city_name,
-            "health_status": plant.health_status,
-            "watering_summary": watering_summary,
-            "recent_events": [
-                {
-                    "event_type": event.event_type,
-                    "occurred_at": event.occurred_at.isoformat(),
-                    "title": event.title,
-                    "description": event.description,
-                }
-                for event in recent_events
-            ],
-            "recent_photos": [
-                {
-                    "photo_type": photo.photo_type,
-                    "caption": photo.caption,
-                    "taken_at": (photo.taken_at or photo.uploaded_at).isoformat(),
-                }
-                for photo in recent_photos
-            ],
-            "recent_climate": [
-                {
-                    "recorded_at": snapshot.recorded_at.isoformat(),
-                    "temperature_c": (
-                        float(snapshot.temperature_c)
-                        if snapshot.temperature_c is not None
-                        else None
-                    ),
-                    "humidity_percent": snapshot.humidity_percent,
-                    "rain_mm": (
-                        float(snapshot.rain_mm)
-                        if snapshot.rain_mm is not None
-                        else None
-                    ),
-                    "uv_index": (
-                        float(snapshot.uv_index)
-                        if snapshot.uv_index is not None
-                        else None
-                    ),
-                }
-                for snapshot in recent_climate
-            ],
-        }
-
-    def _rule_based_answer(
-        self, *, question: str, context: dict
-    ) -> tuple[str, str, dict]:
-        question_lower = question.lower()
-        watering = context["watering_summary"]
-        recent_events = {event["event_type"] for event in context["recent_events"]}
-        recent_heat = watering.get("recent_heat")
-        considered_context = {
-            "last_watering_days": watering.get("days_since_last_watering"),
-            "recent_heat": recent_heat,
-            "recent_repotting": "repotting" in recent_events,
-            "recent_wilt": "wilt" in recent_events,
-            "watering_score": watering.get("score"),
-            "risk_level": watering.get("risk_level"),
-        }
-
-        if "regar" in question_lower or "sede" in question_lower:
-            if watering["score"] >= 80:
-                answer = "Pode haver sede sim. O score está alto e vale revisar a umidade real do substrato antes de regar."
-                confidence = "medium"
-            elif watering["score"] >= 60:
-                answer = "Há indícios moderados de sede, mas ainda não é certeza. Verifique o substrato e a firmeza das folhas."
-                confidence = "medium"
-            else:
-                answer = "Pelos sinais atuais, não parece uma urgência de rega. Ainda assim, confirme o substrato antes de decidir."
-                confidence = "low"
-            return answer, confidence, considered_context
-
-        if "o que pode" in question_lower or "acontecendo" in question_lower:
-            if "repotting" in recent_events and "wilt" in recent_events:
-                return (
-                    "Pode ser estresse pós-transplante, especialmente se a murcha apareceu depois da troca de vaso. Observe recuperação gradual e evite intervenções agressivas.",
-                    "medium",
-                    considered_context,
-                )
-            if recent_heat and watering["score"] >= 60:
-                return (
-                    "O clima recente pode estar contribuindo para desidratação ou estresse térmico. Vale revisar umidade do substrato, incidência de sol e ventilação.",
-                    "medium",
-                    considered_context,
-                )
-            return (
-                "Com o contexto atual, existem hipóteses, mas não um diagnóstico absoluto. Vale observar substrato, evolução das folhas e mudanças recentes de ambiente.",
-                "low",
-                considered_context,
-            )
-
-        return (
-            "Consigo sugerir hipóteses com base no histórico da planta, mas prefiro tratar a resposta como apoio contextual e não como diagnóstico fechado.",
-            "low",
-            considered_context,
-        )
-
-    def ask(self, *, current_user, plant, question: str) -> dict:
-        cleaned_question = " ".join((question or "").split())
-        if len(cleaned_question) < 3:
-            raise ValidationError(
-                "Dados inválidos.",
-                details={"question": "Informe uma pergunta válida."},
-            )
-
-        context = self.build_context(plant)
-        answer, confidence, considered_context = self._rule_based_answer(
-            question=cleaned_question,
-            context=context,
-        )
-
-        external_provider = get_ai_provider()
-        metadata = {"considered_context": considered_context, "mode": "rules"}
-        if external_provider is not None:
-            try:
-                external = external_provider.ask(
-                    question=cleaned_question, context=context
-                )
-                if external.answer:
-                    answer = external.answer
-                if external.confidence:
-                    confidence = external.confidence
-                metadata["external"] = external.metadata
-                metadata["mode"] = "external"
-            except Exception:
-                logger.exception(
-                    "ai.external_provider.failed",
-                    extra={"plant_id": plant.id, "user_id": current_user.id},
-                )
-                metadata["external_error"] = "fallback_to_rules"
+    def ask(self, *, current_user, plant, question: str) -> dict[str, Any]:
+        cleaned_question = self._clean_question(question)
+        context = self.context_builder.build(plant)
+        result = self.engine.answer(question=cleaned_question, context=context)
 
         now = utcnow()
+        assistant_created_at = utcnow()
+
         conversation = AIConversation(
             user_id=current_user.id,
             plant_id=plant.id,
-            title=cleaned_question[:120],
+            title=cleaned_question[: self.TITLE_MAX_LENGTH],
+            created_at=now,
+            updated_at=assistant_created_at,
         )
-        self.repo.add(conversation)
-        self.repo.flush()
 
-        self.repo.add(
-            AIMessage(
+        try:
+            self.repo.add(conversation)
+            self.repo.flush()
+
+            user_message = AIMessage(
                 conversation_id=conversation.id,
                 role="user",
                 content=cleaned_question,
-                metadata_json={"asked_at": now.isoformat()},
+                metadata_json=None,
                 created_at=now,
             )
-        )
-        self.repo.add(
-            AIMessage(
+
+            assistant_metadata = {
+                "confidence": result.confidence,
+                "considered_context": result.considered_context,
+            }
+
+            assistant_message = AIMessage(
                 conversation_id=conversation.id,
                 role="assistant",
-                content=answer,
-                metadata_json=metadata,
-                created_at=utcnow(),
+                content=result.answer,
+                metadata_json=assistant_metadata,
+                created_at=assistant_created_at,
             )
-        )
 
-        if confidence in {"medium", "high"}:
-            self.repo.add(
-                PlantDiagnosis(
-                    plant_id=plant.id,
-                    source="assistant",
-                    confidence=confidence,
-                    summary=answer,
-                    details_json=metadata,
-                    created_at=utcnow(),
+            self.repo.add_all((user_message, assistant_message))
+
+            if result.confidence in {"medium", "high"}:
+                self.repo.add(
+                    PlantDiagnosis(
+                        plant_id=plant.id,
+                        source="assistant",
+                        confidence=result.confidence,
+                        summary=result.answer,
+                        details_json={
+                            "confidence": result.confidence,
+                            "considered_context": result.considered_context,
+                            "mode": "local_rules",
+                        },
+                        created_at=assistant_created_at,
+                    )
                 )
+
+            self.repo.commit()
+
+            logger.info(
+                "ai.ask.completed",
+                extra={
+                    "plant_id": plant.id,
+                    "user_id": current_user.id,
+                    "conversation_id": conversation.id,
+                    "confidence": result.confidence,
+                },
             )
 
-        self.repo.commit()
-        return {
-            "conversation_id": conversation.id,
-            "answer": answer,
-            "confidence": confidence,
-            "considered_context": considered_context,
-        }
+            return self._serialize_answer(
+                result=result,
+                conversation_id=conversation.id,
+            )
+        except Exception:
+            self.repo.rollback()
+            logger.exception(
+                "ai.ask.failed",
+                extra={
+                    "plant_id": getattr(plant, "id", None),
+                    "user_id": getattr(current_user, "id", None),
+                },
+            )
+            raise
 
     def list_conversations(
         self,
@@ -222,10 +123,146 @@ class AIService:
         plant_id: int,
         page: int,
         page_size: int,
-    ):
-        return self.repo.list_conversations(
+    ) -> tuple[list[dict[str, Any]], int]:
+        conversations, total = self.repo.list_conversations(
             user_id=current_user.id,
             plant_id=plant_id,
             page=page,
             page_size=page_size,
         )
+
+        return [self._serialize_conversation(item) for item in conversations], total
+
+    def get_conversation(
+        self,
+        *,
+        current_user,
+        plant_id: int,
+        conversation_id: int,
+    ) -> dict[str, Any] | None:
+        conversation = self.repo.get_conversation(
+            user_id=current_user.id,
+            plant_id=plant_id,
+            conversation_id=conversation_id,
+        )
+
+        if conversation is None:
+            return None
+
+        return self._serialize_conversation(conversation)
+
+    def _clean_question(self, question: str) -> str:
+        if not isinstance(question, str):
+            raise ValidationError(
+                "Dados inválidos.",
+                details={"question": "Informe uma pergunta em texto."},
+            )
+
+        cleaned = " ".join(question.split())
+
+        if len(cleaned) < self.MIN_QUESTION_LENGTH:
+            raise ValidationError(
+                "Dados inválidos.",
+                details={
+                    "question": f"Informe uma pergunta com pelo menos {self.MIN_QUESTION_LENGTH} caracteres."
+                },
+            )
+
+        if len(cleaned) > self.MAX_QUESTION_LENGTH:
+            raise ValidationError(
+                "Dados inválidos.",
+                details={
+                    "question": f"A pergunta deve ter no máximo {self.MAX_QUESTION_LENGTH} caracteres."
+                },
+            )
+
+        return cleaned
+
+    def _serialize_answer(
+        self,
+        *,
+        result: LocalPlantAiResult,
+        conversation_id: int,
+    ) -> dict[str, Any]:
+        return {
+            "answer": result.answer,
+            "resposta": result.answer,
+            "message": result.answer,
+            "recommendation": result.answer,
+            "summary": result.answer,
+            "diagnosis": result.answer,
+            "confidence": result.confidence,
+            "considered_context": result.considered_context,
+            "conversation_id": conversation_id,
+        }
+
+    def _serialize_conversation(self, conversation: AIConversation) -> dict[str, Any]:
+        messages = self._ordered_messages(conversation)
+        first_user_message = next(
+            (message for message in messages if message.role == "user"),
+            None,
+        )
+        last_assistant_message = next(
+            (message for message in reversed(messages) if message.role == "assistant"),
+            None,
+        )
+
+        question = (
+            first_user_message.content if first_user_message else conversation.title
+        )
+        answer_payload = (
+            self._build_answer_payload(last_assistant_message)
+            if last_assistant_message
+            else None
+        )
+
+        return {
+            "id": conversation.id,
+            "title": conversation.title,
+            "question": question,
+            "answer": answer_payload,
+            "response": answer_payload,
+            "messages": [self._serialize_message(message) for message in messages],
+            "created_at": self._iso(conversation.created_at),
+            "updated_at": self._iso(conversation.updated_at),
+        }
+
+    def _build_answer_payload(self, message: AIMessage | None) -> dict[str, Any] | None:
+        if message is None:
+            return None
+
+        metadata = message.metadata_json or {}
+
+        return {
+            "answer": message.content,
+            "confidence": metadata.get("confidence", "low"),
+            "considered_context": metadata.get("considered_context", {}),
+        }
+
+    def _serialize_message(self, message: AIMessage) -> dict[str, Any]:
+        metadata = message.metadata_json
+
+        if message.role == "user":
+            metadata = None
+
+        return {
+            "id": message.id,
+            "role": message.role,
+            "content": message.content,
+            "created_at": self._iso(message.created_at),
+            "metadata_json": metadata,
+        }
+
+    @staticmethod
+    def _ordered_messages(conversation: AIConversation) -> list[AIMessage]:
+        return sorted(
+            list(conversation.messages or []),
+            key=lambda message: (
+                message.created_at.isoformat() if message.created_at else "",
+                message.id or 0,
+            ),
+        )
+
+    @staticmethod
+    def _iso(value: datetime | None) -> str | None:
+        return value.isoformat() if value else None

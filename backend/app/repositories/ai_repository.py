@@ -9,22 +9,43 @@ from app.repositories.base import BaseRepository
 
 class AIRepository(BaseRepository):
     def list_conversations(
-        self, *, user_id: int, plant_id: int | None, page: int, page_size: int
+        self,
+        *,
+        user_id: int,
+        plant_id: int,
+        page: int,
+        page_size: int,
     ) -> tuple[list[AIConversation], int]:
-        stmt = db.select(AIConversation).where(AIConversation.user_id == user_id)
-        if plant_id is None:
-            stmt = stmt.where(AIConversation.plant_id.is_(None))
-        else:
-            stmt = stmt.where(AIConversation.plant_id == plant_id)
-        stmt = stmt.order_by(AIConversation.updated_at.desc(), AIConversation.id.desc())
-        return self.paginate(stmt, page=page, page_size=page_size)
-
-    def get_conversation(self, conversation_id: int) -> AIConversation | None:
-        if conversation_id <= 0:
-            return None
         stmt = (
             db.select(AIConversation)
-            .where(AIConversation.id == conversation_id)
+            .where(
+                AIConversation.user_id == user_id,
+                AIConversation.plant_id == plant_id,
+            )
+            .options(selectinload(AIConversation.messages))
+            .order_by(AIConversation.updated_at.desc(), AIConversation.id.desc())
+        )
+
+        return self.paginate(stmt, page=page, page_size=page_size)
+
+    def get_conversation(
+        self,
+        *,
+        user_id: int,
+        plant_id: int,
+        conversation_id: int,
+    ) -> AIConversation | None:
+        if conversation_id <= 0:
+            return None
+
+        stmt = (
+            db.select(AIConversation)
+            .where(
+                AIConversation.id == conversation_id,
+                AIConversation.user_id == user_id,
+                AIConversation.plant_id == plant_id,
+            )
             .options(selectinload(AIConversation.messages))
         )
+
         return self.session.execute(stmt).scalar_one_or_none()

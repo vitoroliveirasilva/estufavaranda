@@ -3,7 +3,12 @@ from app.schemas.admin import (
     AdminResetPasswordInput,
     AdminUpdateUserInput,
 )
-from app.schemas.ai import AIConversationOutput, AskAIInput
+from app.schemas.ai import (
+    AIAnswerOutput,
+    AIConversationOutput,
+    AIMessageOutput,
+    AskAIInput,
+)
 from app.schemas.auth import (
     DeviceRegisterInput,
     ForgotPasswordInput,
@@ -25,7 +30,9 @@ __all__ = [
     "AdminCreateUserInput",
     "AdminResetPasswordInput",
     "AdminUpdateUserInput",
+    "AIAnswerOutput",
     "AIConversationOutput",
+    "AIMessageOutput",
     "AskAIInput",
     "DeviceRegisterInput",
     "EventCreateInput",
