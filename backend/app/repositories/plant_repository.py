@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import ClimateSnapshot, Plant, PlantEvent, PlantPhoto, WateringLog
@@ -12,11 +11,7 @@ class PlantRepository(BaseRepository):
     def get_by_id(self, plant_id: int) -> Plant | None:
         if plant_id <= 0:
             return None
-        stmt = (
-            db.select(Plant)
-            .where(Plant.id == plant_id)
-            .options(selectinload(Plant.species_profile))
-        )
+        stmt = db.select(Plant).where(Plant.id == plant_id)
         return self.session.execute(stmt).scalar_one_or_none()
 
     def list_plants(
@@ -25,16 +20,11 @@ class PlantRepository(BaseRepository):
         user_id: int | None,
         include_archived: bool,
         health_status: str | None,
-        species_profile_id: int | None,
         search: str | None,
         page: int,
         page_size: int,
     ) -> tuple[list[Plant], int]:
-        stmt = (
-            db.select(Plant)
-            .options(selectinload(Plant.species_profile))
-            .order_by(Plant.updated_at.desc(), Plant.id.desc())
-        )
+        stmt = db.select(Plant).order_by(Plant.updated_at.desc(), Plant.id.desc())
 
         if user_id is not None:
             stmt = stmt.where(Plant.user_id == user_id)
@@ -44,9 +34,6 @@ class PlantRepository(BaseRepository):
         cleaned_health_status = self.clean_text(health_status)
         if cleaned_health_status is not None:
             stmt = stmt.where(Plant.health_status == cleaned_health_status)
-
-        if species_profile_id is not None:
-            stmt = stmt.where(Plant.species_profile_id == species_profile_id)
 
         pattern = self.build_like_pattern(search)
         if pattern is not None:

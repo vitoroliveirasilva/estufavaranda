@@ -6,7 +6,7 @@ from app.core.config import get_settings
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.security import utcnow
 from app.models import HealthStatus, Plant
-from app.repositories import PlantRepository, SpeciesRepository
+from app.repositories import PlantRepository
 from app.services.watering_service import WateringService
 from app.utils import validate_choice
 
@@ -24,10 +24,13 @@ class PlantService:
         "city_name",
         "notes",
     }
+    IGNORED_FIELDS = {
+        "species_profile_id",
+        "species_profile",
+    }
 
     def __init__(self):
         self.repo = PlantRepository()
-        self.species = SpeciesRepository()
         self.watering = WateringService()
 
     @staticmethod
@@ -41,6 +44,10 @@ class PlantService:
 
     def _normalize_payload(self, payload: dict, *, partial: bool) -> dict:
         normalized = dict(payload)
+
+        for field in self.IGNORED_FIELDS:
+            normalized.pop(field, None)
+
         for field in self.TEXT_FIELDS:
             if field in normalized:
                 value = self.repo.clean_text(normalized.get(field))
@@ -67,23 +74,6 @@ class PlantService:
                 "health_status",
             )
 
-        species_profile_id = normalized.get("species_profile_id")
-        if species_profile_id is not None:
-            if int(species_profile_id) <= 0:
-                raise ValidationError(
-                    "Dados inválidos.",
-                    details={"species_profile_id": "Informe um ID de espécie válido."},
-                )
-            species = self.species.get_by_id(int(species_profile_id))
-            if species is None:
-                raise NotFoundError("Perfil de espécie não encontrado.")
-            if not species.is_active:
-                raise ValidationError(
-                    "Dados inválidos.",
-                    details={"species_profile_id": "O perfil de espécie está inativo."},
-                )
-            normalized["species_profile_id"] = int(species_profile_id)
-
         return normalized
 
     def list_plants(
@@ -92,7 +82,6 @@ class PlantService:
         current_user,
         include_archived: bool,
         health_status: str | None,
-        species_profile_id: int | None,
         search: str | None,
         page: int,
         page_size: int,
@@ -115,7 +104,6 @@ class PlantService:
             user_id=user_id,
             include_archived=include_archived,
             health_status=health_status,
-            species_profile_id=species_profile_id,
             search=search,
             page=page,
             page_size=page_size,
@@ -167,16 +155,6 @@ class PlantService:
             "user_id": plant.user_id,
             "name": plant.name,
             "nickname": plant.nickname,
-            "species_profile_id": plant.species_profile_id,
-            "species_profile": (
-                {
-                    "id": plant.species_profile.id,
-                    "common_name": plant.species_profile.common_name,
-                    "scientific_name": plant.species_profile.scientific_name,
-                }
-                if plant.species_profile
-                else None
-            ),
             "acquisition_date": (
                 plant.acquisition_date.isoformat() if plant.acquisition_date else None
             ),
