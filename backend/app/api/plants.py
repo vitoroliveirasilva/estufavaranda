@@ -76,19 +76,14 @@ def _optional_str_arg(name: str) -> str | None:
     return value or None
 
 
-def _optional_species_profile_id_arg() -> int | None:
-    raw_value = request.args.get("species_profile_id")
-    if raw_value is None or not raw_value.strip():
-        return None
-    return _parse_positive_int_arg("species_profile_id", 1, minimum=1)
-
-
 def _optional_health_status_arg() -> str | None:
     value = _optional_str_arg("health_status")
     if value is None:
         return None
-    validate_choice(value, _ALLOWED_HEALTH_STATUS, "health_status")
-    return value
+
+    normalized = value.lower()
+    validate_choice(normalized, _ALLOWED_HEALTH_STATUS, "health_status")
+    return normalized
 
 
 @plants_bp.get("")
@@ -105,7 +100,6 @@ def list_plants():
         current_user=g.current_user,
         include_archived=include_archived,
         health_status=_optional_health_status_arg(),
-        species_profile_id=_optional_species_profile_id_arg(),
         search=_optional_str_arg("search"),
         page=page,
         page_size=page_size,
@@ -121,14 +115,6 @@ def list_plants():
                 "city_name": plant.city_name,
                 "archived_at": (
                     plant.archived_at.isoformat() if plant.archived_at else None
-                ),
-                "species_profile": (
-                    {
-                        "id": plant.species_profile.id,
-                        "common_name": plant.species_profile.common_name,
-                    }
-                    if plant.species_profile
-                    else None
                 ),
             }
             for plant in items
