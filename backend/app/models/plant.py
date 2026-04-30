@@ -34,7 +34,6 @@ class Plant(Base, TimestampMixin, SoftArchiveMixin):
     __tablename__ = "plants"
     __table_args__ = (
         Index("ix_plants_user_id", "user_id"),
-        Index("ix_plants_species_profile_id", "species_profile_id"),
         Index("ix_plants_health_status", "health_status"),
         CheckConstraint(
             enum_check_clause(HealthStatus, column_name="health_status"),
@@ -45,11 +44,6 @@ class Plant(Base, TimestampMixin, SoftArchiveMixin):
     id: Mapped[int] = mapped_column(BIGINT_SQL, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
         BIGINT_SQL, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    species_profile_id: Mapped[int | None] = mapped_column(
-        BIGINT_SQL,
-        ForeignKey("species_profiles.id", ondelete="SET NULL"),
-        nullable=True,
     )
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     nickname: Mapped[str | None] = mapped_column(String(150), nullable=True)
@@ -74,11 +68,6 @@ class Plant(Base, TimestampMixin, SoftArchiveMixin):
     )
 
     user = relationship("User", back_populates="plants")
-    species_profile = relationship(
-        "SpeciesProfile",
-        back_populates="plants",
-        passive_deletes=True,
-    )
     events = relationship(
         "PlantEvent",
         back_populates="plant",

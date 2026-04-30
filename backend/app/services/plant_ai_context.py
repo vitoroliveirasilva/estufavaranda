@@ -23,17 +23,11 @@ class PlantAiContextBuilder:
         recent_climate = self.plants.recent_climate_snapshots(plant.id, limit=8)
         watering_summary = self.watering.get_summary(plant) or {}
 
-        species_profile = getattr(plant, "species_profile", None)
-
         return {
             "plant": {
                 "id": plant.id,
                 "name": plant.name,
                 "nickname": plant.nickname,
-                "species": (species_profile.common_name if species_profile else None),
-                "scientific_name": (
-                    species_profile.scientific_name if species_profile else None
-                ),
                 "environment": plant.environment,
                 "light_exposure": plant.light_exposure,
                 "ventilation": plant.ventilation,

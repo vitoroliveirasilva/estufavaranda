@@ -24,9 +24,9 @@ class PlantService:
         "city_name",
         "notes",
     }
-    IGNORED_FIELDS = {
-        "species_profile_id",
-        "species_profile",
+    WRITABLE_FIELDS = TEXT_FIELDS | {
+        "acquisition_date",
+        "health_status",
     }
 
     def __init__(self):
@@ -43,10 +43,11 @@ class PlantService:
         return collapsed.title()
 
     def _normalize_payload(self, payload: dict, *, partial: bool) -> dict:
-        normalized = dict(payload)
-
-        for field in self.IGNORED_FIELDS:
-            normalized.pop(field, None)
+        normalized = {
+            field: value
+            for field, value in payload.items()
+            if field in self.WRITABLE_FIELDS
+        }
 
         for field in self.TEXT_FIELDS:
             if field in normalized:

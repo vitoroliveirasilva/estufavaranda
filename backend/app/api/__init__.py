@@ -4,6 +4,7 @@ from flask import Flask
 
 from app.api.admin import admin_bp
 from app.api.ai import ai_bp
+from app.api.app_content import app_content_bp
 from app.api.auth import auth_bp
 from app.api.climate import climate_bp
 from app.api.events import events_bp
@@ -19,6 +20,7 @@ def register_blueprints(app: Flask) -> None:
         (health_bp, None),
         (auth_bp, "/api/v1/auth"),
         (admin_bp, "/api/v1/admin"),
+        (app_content_bp, "/api/v1"),
         (plants_bp, "/api/v1/plants"),
         (events_bp, "/api/v1/plants"),
         (photos_bp, "/api/v1/plants"),

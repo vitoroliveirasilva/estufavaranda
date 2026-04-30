@@ -22,6 +22,16 @@ def _coerce_aware_utc(value: datetime | None) -> datetime | None:
 class WateringScoringService:
     DEFAULT_BASE_FREQUENCY_DAYS = 4
 
+    def _resolve_base_frequency_days(self, plant: Plant) -> int:
+        raw_frequency = getattr(plant, "watering_frequency_days", None)
+
+        try:
+            frequency = int(raw_frequency or self.DEFAULT_BASE_FREQUENCY_DAYS)
+        except (TypeError, ValueError):
+            frequency = self.DEFAULT_BASE_FREQUENCY_DAYS
+
+        return max(frequency, 1)
+
     def calculate(
         self,
         *,
@@ -40,12 +50,7 @@ class WateringScoringService:
             delta = now - latest_watering_at
             days_since_watering = max(0, delta.days)
 
-        base_frequency = (
-            plant.species_profile.watering_frequency_days
-            if plant.species_profile is not None
-            else self.DEFAULT_BASE_FREQUENCY_DAYS
-        )
-        base_frequency = max(int(base_frequency or self.DEFAULT_BASE_FREQUENCY_DAYS), 1)
+        base_frequency = self._resolve_base_frequency_days(plant)
 
         score = 15
         if days_since_watering is not None:
