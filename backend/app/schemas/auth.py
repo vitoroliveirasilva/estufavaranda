@@ -52,11 +52,17 @@ class LogoutInput(InputModel):
 
 class ForgotPasswordInput(InputModel):
     email: EmailStr
+    captcha_token: str | None = Field(default=None, max_length=2048)
 
     @field_validator("email", mode="before")
     @classmethod
     def _normalize_email(cls, value):
         return normalize_email_value(value)
+
+    @field_validator("captcha_token", mode="before")
+    @classmethod
+    def _normalize_captcha_token(cls, value):
+        return blank_str_to_none(value)
 
 
 class ResetPasswordInput(InputModel):

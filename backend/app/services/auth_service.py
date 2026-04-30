@@ -30,6 +30,7 @@ from app.repositories import (
     TokenRepository,
     UserRepository,
 )
+from app.services.captcha_service import CaptchaService
 from app.services.mail_service import MailService
 from app.utils.validators import normalize_email, validate_password_strength
 
@@ -41,6 +42,7 @@ class AuthService:
         self.attempts = LoginAttemptRepository()
         self.devices = DeviceRepository()
         self.rate_limits = AuthRateLimitRepository()
+        self.captcha = CaptchaService()
         self.mailer = MailService()
 
     @staticmethod
@@ -230,7 +232,7 @@ class AuthService:
         self.tokens.revoke_refresh_token(hash_refresh_token(refresh_token))
         self.tokens.commit()
 
-    def forgot_password(self, *, email: str) -> None:
+    def forgot_password(self, *, email: str, captcha_token: str | None = None) -> None:
         settings = get_settings()
         normalized_email = normalize_email(email)
         client_ip = self._client_ip()
@@ -243,6 +245,10 @@ class AuthService:
                 client_ip=client_ip,
                 email=normalized_email,
             ),
+        )
+        self.captcha.verify_forgot_password(
+            token=captcha_token,
+            remote_ip=client_ip,
         )
 
         user = self.users.get_by_email(normalized_email)

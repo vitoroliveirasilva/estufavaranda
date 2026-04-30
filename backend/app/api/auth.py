@@ -65,7 +65,7 @@ def me():
 @auth_bp.post("/forgot-password")
 def forgot_password():
     payload = parse_json(ForgotPasswordInput)
-    service.forgot_password(email=payload.email)
+    service.forgot_password(email=payload.email, captcha_token=payload.captcha_token)
     return ok(
         {
             "message": "Se o e-mail estiver cadastrado, você receberá instruções para redefinir sua senha."

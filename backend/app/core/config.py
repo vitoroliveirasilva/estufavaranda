@@ -111,6 +111,24 @@ class Settings(BaseSettings):
         default=72, alias="AUTH_RATE_LIMIT_RETENTION_HOURS"
     )
 
+    turnstile_enabled: bool = Field(default=False, alias="TURNSTILE_ENABLED")
+    turnstile_secret_key: str | None = Field(
+        default=None, alias="TURNSTILE_SECRET_KEY"
+    )
+    turnstile_verify_url: str = Field(
+        default="https://challenges.cloudflare.com/turnstile/v0/siteverify",
+        alias="TURNSTILE_VERIFY_URL",
+    )
+    turnstile_request_timeout_seconds: int = Field(
+        default=5, alias="TURNSTILE_REQUEST_TIMEOUT_SECONDS"
+    )
+    turnstile_expected_hostname: str | None = Field(
+        default=None, alias="TURNSTILE_EXPECTED_HOSTNAME"
+    )
+    turnstile_expected_action: str | None = Field(
+        default="forgot_password", alias="TURNSTILE_EXPECTED_ACTION"
+    )
+
     smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
     smtp_user: str | None = Field(default=None, alias="SMTP_USER")
@@ -154,6 +172,9 @@ class Settings(BaseSettings):
         "smtp_user",
         "smtp_password",
         "smtp_from_email",
+        "turnstile_secret_key",
+        "turnstile_expected_hostname",
+        "turnstile_expected_action",
         "climate_api_key",
         "ai_provider_url",
         "ai_provider_key",
@@ -213,6 +234,11 @@ class Settings(BaseSettings):
     def _validate_frontend_base_url(cls, value: str) -> str:
         return _validate_http_url(value, field_name="FRONTEND_BASE_URL")
 
+    @field_validator("turnstile_verify_url")
+    @classmethod
+    def _validate_turnstile_verify_url(cls, value: str) -> str:
+        return _validate_http_url(value, field_name="TURNSTILE_VERIFY_URL")
+
     @field_validator("default_timezone")
     @classmethod
     def _validate_timezone(cls, value: str) -> str:
@@ -243,6 +269,7 @@ class Settings(BaseSettings):
         "auth_reset_password_limit_attempts",
         "auth_refresh_limit_attempts",
         "auth_rate_limit_retention_hours",
+        "turnstile_request_timeout_seconds",
     )
     @classmethod
     def _validate_positive_integers(cls, value: int) -> int:
@@ -341,6 +368,11 @@ class Settings(BaseSettings):
                     + "."
                 )
             _validate_http_url(self.ai_provider_url or "", field_name="AI_PROVIDER_URL")
+
+        if self.turnstile_enabled and not self.turnstile_secret_key:
+            raise ValueError(
+                "TURNSTILE_SECRET_KEY é obrigatório quando TURNSTILE_ENABLED estiver habilitado."
+            )
 
         if self.smtp_host and not self.smtp_from_email:
             raise ValueError(
