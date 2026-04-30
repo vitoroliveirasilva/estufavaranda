@@ -28,7 +28,6 @@ from app.models.plant import (
     PlantPhoto,
     WateringLog,
 )
-from app.models.species import SpeciesProfile
 
 __all__ = [
     "AIConversation",
@@ -54,7 +53,6 @@ __all__ = [
     "PlantEventType",
     "PlantPhoto",
     "RefreshToken",
-    "SpeciesProfile",
     "User",
     "WateringLog",
 ]

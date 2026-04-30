@@ -5,7 +5,6 @@ from app.repositories.notification_repository import NotificationRepository
 from app.repositories.photo_repository import PhotoRepository
 from app.repositories.plant_repository import PlantRepository
 from app.repositories.rate_limit_repository import AuthRateLimitRepository
-from app.repositories.species_repository import SpeciesRepository
 from app.repositories.user_repository import (
     DeviceRepository,
     LoginAttemptRepository,
@@ -24,7 +23,6 @@ __all__ = [
     "NotificationRepository",
     "PhotoRepository",
     "PlantRepository",
-    "SpeciesRepository",
     "TokenRepository",
     "UserRepository",
     "WateringRepository",

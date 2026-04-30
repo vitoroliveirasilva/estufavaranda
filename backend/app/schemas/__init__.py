@@ -23,7 +23,6 @@ from app.schemas.event import EventCreateInput, EventOutput
 from app.schemas.notification import NotificationOutput
 from app.schemas.photo import PhotoCreateInput, PhotoOutput
 from app.schemas.plant import PlantCreateInput, PlantOutput, PlantUpdateInput
-from app.schemas.species import SpeciesCreateInput, SpeciesOutput, SpeciesUpdateInput
 from app.schemas.watering import WateringCreateInput, WateringOutput
 
 __all__ = [
@@ -51,9 +50,6 @@ __all__ = [
     "PlantUpdateInput",
     "RefreshInput",
     "ResetPasswordInput",
-    "SpeciesCreateInput",
-    "SpeciesOutput",
-    "SpeciesUpdateInput",
     "UserOutput",
     "WateringCreateInput",
     "WateringOutput",
