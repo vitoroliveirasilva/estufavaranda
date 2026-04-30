@@ -63,11 +63,15 @@ def test_user_cannot_access_another_users_plant(client, auth_headers_for, create
     assert response.get_json()["error"]["code"] == "not_found"
 
 
-def test_invalid_species_profile_query_returns_client_error(client, auth_headers_for):
+def test_removed_species_profile_query_is_ignored(client, auth_headers_for):
     headers = auth_headers_for("user@example.com", "User12345")
+
     response = client.get(
         "/api/v1/plants?species_profile_id=abc",
         headers=headers,
     )
-    assert response.status_code in {400, 422, 500}
-    assert "error" in response.get_json()
+
+    assert response.status_code == 200, response.get_json()
+    payload = response.get_json()
+    assert "data" in payload
+    assert "meta" in payload

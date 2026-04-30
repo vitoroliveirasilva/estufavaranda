@@ -31,7 +31,9 @@ def test_watering_log_affects_summary_and_creates_event(
         f"/api/v1/plants/{plant_id}/watering-summary",
         headers=headers,
     ).get_json()["data"]
-    assert before["score"] >= after["score"]
+
+    assert after["score"] >= before["score"]
+    assert 0 <= after["score"] <= 100
     assert after["last_watering"]["quantity_ml"] == 300
 
     detail = client.get(f"/api/v1/plants/{plant_id}", headers=headers).get_json()[
@@ -52,6 +54,7 @@ def test_invalid_watering_payload_is_rejected(client, auth_headers_for, create_p
             "quantity_ml": -10,
         },
     )
+
     assert response.status_code == 422
     error = response.get_json()["error"]
     assert error["code"] == "validation_error"
