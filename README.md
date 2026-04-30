@@ -16,7 +16,6 @@ Backend Flask para catálogo, acompanhamento e assistência contextual de planta
   - bloqueio por excesso de tentativas
   - Argon2id para hash de senha
 - CRUD de plantas
-- Perfis de espécie
 - Timeline de eventos
 - Upload seguro de fotos
 - Registro de rega e score de necessidade de rega
@@ -221,9 +220,7 @@ pytest
 
 - O backend foi desenhado para um MVP em VPS única.
 - O provider de clima padrão usa Open-Meteo.
-- O provider de IA externo é opcional.
 - O acesso administrativo global às plantas pode ser controlado por `ENABLE_ADMIN_READ_ALL_PLANTS`.
-- O fluxo de reset de senha envia e-mail quando SMTP estiver configurado. Sem SMTP, o link é logado para ambiente controlado.
+- O fluxo de reset de senha envia e-mail quando SMTP estiver configurado.
 - A exclusão de planta é arquivamento lógico.
 - A exclusão de foto é remoção lógica controlada.
-- O projeto prioriza previsibilidade, clareza e evolução segura, sem microservicite ornamental.
